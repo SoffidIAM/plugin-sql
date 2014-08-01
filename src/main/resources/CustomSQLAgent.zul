@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<?component name="input_criteri" macro-uri="comu/input_criteri.zul"?>
+<?component name="input_dada" macro-uri="comu/input_dada.zul"?>
+<?component name="input_etiqueta" macro-uri="comu/input_etiqueta.zul"?>
+<?component name="input_password" macro-uri="comu/input_password.zul"?>
+
+<grid width="99%">
+	<columns visible="false"><column width="14%"/><column/> </columns>
+	<rows>
+		<row>
+			<input_etiqueta value="User name" />
+			<hbox width="90%">
+				<input_dada bind="@param0" lectura="${!canModifyAgent}"
+					width_custom="98%" />
+			</hbox>
+		</row>
+		<row>
+			<input_etiqueta value="Password" />
+			<hbox width="90%">
+				<input_password bind="@param1" lectura="${!canModifyAgent}"
+					width_custom="98%" />
+			</hbox>
+		</row>
+		<row>
+			<input_etiqueta value="Driver" />
+			<listbox bind="@param5" mold="select"  disabled="{!canModifyAgent}" width="100px">
+				<listitem value="mysql">
+					<listcell label="MySQL"/>
+				</listitem>
+				<listitem value="postgresql">
+					<listcell label="Postresql"/>
+				</listitem>
+				<listitem value="oracle">
+					<listcell label="Oracle"/>
+				</listitem>
+				<listitem value="sqlserver">
+					<listcell label="MS SQL Server"/>
+				</listitem>
+				<listitem value="informix">
+					<listcell label="Informix"/>
+				</listitem>
+			</listbox>
+		</row>
+		<row>
+			<input_etiqueta value="DB URL" />
+			<hbox width="90%">
+				<input_dada bind="@param2" lectura="${!canModifyAgent}"
+					width_custom="98%" />
+			</hbox>
+		</row>
+		<row>
+			<input_etiqueta value="Password hash algorightm" />
+			<vbox width="90%">
+				<input_dada bind="@param3" lectura="${!canModifyAgent}"
+					width_custom="98%" />
+				<label value="e.g. SHA"/>
+			</vbox>
+		</row>
+		<row>
+			<input_etiqueta value="Password hash prefix" />
+			<hbox width="90%">
+				<input_dada bind="@param4" lectura="${!canModifyAgent}"
+					width_custom="98%" />
+				<label value="e.g. {SHA}"/>
+			</hbox>
+		</row>
+		<row>
+			<input_etiqueta value="Enable debug" />
+			<listbox bind="@param5" mold="select"  disabled="{!canModifyAgent}" width="100px">
+				<listitem value="false">
+					<listcell label="No"/>
+				</listitem>
+				<listitem value="true">
+					<listcell label="Yes"/>
+				</listitem>
+			</listbox>
+		</row>
+	</rows>
+</grid>

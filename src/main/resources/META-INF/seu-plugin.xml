@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<seuServerPlugin xmlns="http://seu.sourceforge.net/schema/serverplugin"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://seu.sourceforge.net/schema/ServerPlugin.xsd">
+	<name>SQL plugin</name>
+	<version>${pom.version}</version>
+	<agent>
+		<name>Custmizable SQL agent</name>
+		<javaClass>com.soffid.iam.sync.agent.SQLAgent</javaClass>
+		<userInterface>CustomSQLAgent.zul</userInterface>
+		<enableAccessControl>false</enableAccessControl>
+
+		<authoritativeSource>true</authoritativeSource>
+		<enableAccessControl>false</enableAccessControl>
+		<enableAttributeMapping>true</enableAttributeMapping>
+
+		<object systemObject="USERS" soffidObject="user">
+			<property name="selectAll" value="SELECT * FROM USERS"/>
+			<property name="selectByAccountName" value="SELECT * FROM USERS WHERE USER=:USER"/>
+			<property name="check" value="SELECT ID FROM USERS WHERE USER=:USER"/>
+			<property name="insert" value="INSERT INTO USERS VALUES (:USER, :FIRST_NAME, :LAST_NAME, :MAIL, :GROUP)"/>
+			<property name="update" value="UPDATE USERS SET FIRST_NAME=:FIRST_NAME, LAST_NAME=:LAST_NAME, MAIL=:MAIL, GROUP=:GROUP WHERE ID=:ID"/>
+			<property name="delete" value="DELETE FROM USERS WHERE ID=:ID"/>
+			<property name="updatePassword" value="UPDATE USERS SET PASS=:PASS WHERE USER=:USER"/>
+			<property name="validatePassword" value="SELET 1 FROM USERS WHERE PASS=:PASS AND USER=:USER"/>
+			<mapping soffidAttribute='accountName' systemAttribute='USER'
+				direction="inout" />
+			<mapping soffidAttribute='firstName' systemAttribute='FIRST_NAME'
+				direction="inount" />
+			<mapping soffidAttribute='lastName' systemAttribute='LAST_NAME'
+				direction="inout" />
+			<mapping
+				soffidAttribute='shortName==null ? attributes{"MAIL"} : shortName+"@"+mailDomain'
+				systemAttribute='MAIL' direction="out" />
+			<mapping soffidAttribute='primaryGroup' systemAttribute='GROUP'
+				direction="inout" />
+			<mapping soffidAttribute='password' systemAttribute='PASS'
+				direction="out" />
+		</object>
+
+		<object systemObject="USER_ROLES" soffidObject="grantedRole">
+			<property name="selectByAccount" value="SELECT * FROM USER_ROLES WHERE USERNAME=:USER"/>
+			<property name="selectByRole" value="SELECT * FROM USER_ROLES WHERE USERNAME=:USER"/>
+			<property name="check" value="SELECT 1 FROM USER_ROLES WHERE USERNAME=:USER WHERE ROLNAME=:ROL"/>
+			<property name="update" value=""/>
+			<property name="delete" value="DELETE FROM USER_ROLES WHERE ID=:ID"/>
+			<property name="insert" value="INSERT INTO USER_ROLES (USETNAME, ROLNAME) VALUES (:USERNAME, :ROLNAME)"/>
+			<mapping soffidAttribute='accountName' systemAttribute='USER'
+				direction="inout" />
+			<mapping soffidAttribute='firstName' systemAttribute='FIRST_NAME'
+				direction="inount" />
+			<mapping soffidAttribute='lastName' systemAttribute='LAST_NAME'
+				direction="inout" />
+			<mapping
+				soffidAttribute='shortName==null ? attributes{"MAIL"} : shortName+"@"+mailDomain'
+				systemAttribute='MAIL' direction="out" />
+			<mapping soffidAttribute='primaryGroup' systemAttribute='GROUP'
+				direction="inout" />
+			<mapping soffidAttribute='password' systemAttribute='PASS'
+				direction="out" />
+		</object>
+
+		<object systemObject="role" soffidObject="role">
+			<property name="selectByName" value="SELECT * FROM ROLES WHERE ROLE=:ROLE"/>
+			<property name="check" value="SELECT ID FROM ROLES WHERE ROLE=:ROLE"/>
+			<property name="insert1" value="INSERT INTO ROLES VALUES (:ROLE, :DESCRIPTION)"/>
+			<property name="update1" value="UPDATE ROLES SET DESCRIPTION=:DESCRIPTION WHERE ROLE=:ROLE"/>
+			<property name="delete1" value="DELETE FROM ROLES WHERE ROLE=:ROLE"/>
+			<mapping soffidAttribute='roleName' systemAttribute='ROLE'
+				direction="inout" />
+			<mapping soffidAttribute='systemName' systemAttribute='DESCRIPTION'
+				direction="inout" />
+		</object>
+
+
+	</agent>
+</seuServerPlugin>
