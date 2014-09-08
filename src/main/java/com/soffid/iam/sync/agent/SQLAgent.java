@@ -27,6 +27,7 @@ import javax.ejb.RemoveException;
 import com.informix.jdbc.IfxDriver;
 import com.mysql.jdbc.Driver;
 import com.soffid.iam.api.Group;
+import com.soffid.iam.api.RoleGrant;
 
 import es.caib.seycon.ng.comu.Account;
 import es.caib.seycon.ng.comu.AttributeDirection;
@@ -60,6 +61,7 @@ import es.caib.seycon.ng.sync.intf.ExtensibleObjectMapping;
 import es.caib.seycon.ng.sync.intf.ExtensibleObjectMgr;
 import es.caib.seycon.ng.sync.intf.ExtensibleObjects;
 import es.caib.seycon.ng.sync.intf.ReconcileMgr;
+import es.caib.seycon.ng.sync.intf.ReconcileMgr2;
 import es.caib.seycon.ng.sync.intf.RoleMgr;
 import es.caib.seycon.ng.sync.intf.UserMgr;
 import es.caib.seycon.util.Base64;
@@ -79,7 +81,7 @@ import es.caib.seycon.util.Base64;
  * <P>
  */
 
-public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, ReconcileMgr, RoleMgr,
+public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, ReconcileMgr2, RoleMgr,
 	AuthoritativeIdentitySource {
 
 	ValueObjectMapper vom = new ValueObjectMapper();
@@ -263,6 +265,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 
 	private void insert(ExtensibleObject obj, Map<String, String> properties) throws InternalErrorException {
+		debugObject("Creating object", obj, "");
 		for (String tag: getTags (properties, "insert"))
 		{
 			String sentence = properties.get(tag);
@@ -271,6 +274,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	}
 
 	private void delete(ExtensibleObject obj, Map<String, String> properties) throws InternalErrorException {
+		debugObject("Removing object", obj, "");
 		for (String tag: getTags (properties, "delete"))
 		{
 			String sentence = properties.get(tag);
@@ -279,6 +283,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	}
 
 	private void update(ExtensibleObject obj, Map<String, String> properties) throws InternalErrorException {
+		debugObject("Updating object", obj, "");
 		for (String tag: getTags (properties, "update"))
 		{
 			String sentence = properties.get(tag);
@@ -304,6 +309,15 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		parseSentence(sentence, obj, b, parameters);
 		
 		String parsedSentence = b.toString().trim();
+		
+		if (debugEnabled)
+		{
+			log.info("Executing "+parsedSentence);
+			for (Object param: parameters)
+			{
+				log.info("   Param: "+(param == null ? "null": param.toString()));
+			}
+		}
 		
 		if (parsedSentence.toLowerCase().startsWith("select"))
 		{
@@ -440,14 +454,21 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 									resultObject.setAttribute(param, row[i]);
 								}
 							}
-							Usuari usuari = new ValueObjectMapper().parseUsuari(objectTranslator.parseInputObject(resultObject, objMapping));
+							debugObject("Got authoritative change", resultObject, "");
+							ExtensibleObject translated = objectTranslator.parseInputObject(resultObject, objMapping);
+							debugObject("Translated to", translated, "");
+							Usuari usuari = new ValueObjectMapper().parseUsuari(translated);
 							if (usuari != null)
 							{
+								if (debugEnabled && usuari != null)
+									log.info ("Result user: "+usuari.toString());
 								Long changeId = new Long(lastChangeId++);
 								AuthoritativeChange ch = new AuthoritativeChange();
 								ch.setId(new AuthoritativeChangeIdentifier());
 								ch.getId().setInternalId(changeId);
 								ch.setUser(usuari);
+								Map<String,Object> attributes = (Map<String, Object>) translated.getAttribute("attributes");
+								ch.setAttributes(attributes);
 								changes.add(ch);
 								changeIds.add(changeId);
 							}
@@ -508,45 +529,50 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			{
 				// First get existing roles
 				LinkedList<ExtensibleObject> existingRoles = new LinkedList<ExtensibleObject>();
+				boolean foundSelect = false;
 				for (String tag: getTags(objectMapping.getProperties(), "selectByRole"))
 				{
 					existingRoles.addAll ( selectSystemObjects (sample, objectMapping, objectMapping.getProperties().get(tag)) );
+					foundSelect = true;
 				}
-				// Now get roles to have
-				Collection<Account> grants = new LinkedList<Account> (initialGrants);
-				// Now add non existing roles
-				for (Iterator<Account> accountIterator = grants.iterator(); accountIterator.hasNext(); )
+				if (foundSelect)
 				{
-					Account account = accountIterator.next();
-					
-					// Check if this account is already granted
-					boolean found = false;
-					for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); ! found && objectIterator.hasNext();)
+					// Now get roles to have
+					Collection<Account> grants = new LinkedList<Account> (initialGrants);
+					// Now add non existing roles
+					for (Iterator<Account> accountIterator = grants.iterator(); accountIterator.hasNext(); )
 					{
-						ExtensibleObject object = objectIterator.next ();
-						String accountName = vom.toSingleString(objectTranslator.parseInputAttribute("ownerAccount", object, objectMapping));
-						if (accountName != null && accountName.equals (account.getName()))
+						Account account = accountIterator.next();
+						
+						// Check if this account is already granted
+						boolean found = false;
+						for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); ! found && objectIterator.hasNext();)
 						{
-							objectIterator.remove();
-							found = true;
+							ExtensibleObject object = objectIterator.next ();
+							String accountName = vom.toSingleString(objectTranslator.parseInputAttribute("ownerAccount", object, objectMapping));
+							if (accountName != null && accountName.equals (account.getName()))
+							{
+								objectIterator.remove();
+								found = true;
+							}
+						}
+						if (! found)
+						{
+							RolGrant rg = new RolGrant();
+							rg.setOwnerAccountName(account.getName());
+							rg.setOwnerDispatcher(account.getDispatcher());
+							rg.setRolName(role.getNom());
+							rg.setDispatcher(role.getBaseDeDades());
+							ExtensibleObject object = objectTranslator.generateObject( new GrantExtensibleObject(rg, getServer()), objectMapping);
+							updateObject(object);
 						}
 					}
-					if (! found)
+					// Now remove unneeded grants
+					for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); objectIterator.hasNext();)
 					{
-						RolGrant rg = new RolGrant();
-						rg.setOwnerAccountName(account.getName());
-						rg.setOwnerDispatcher(account.getDispatcher());
-						rg.setRolName(role.getNom());
-						rg.setDispatcher(role.getBaseDeDades());
-						ExtensibleObject object = objectTranslator.generateObject( new GrantExtensibleObject(rg, getServer()), objectMapping);
-						updateObject(object);
+						ExtensibleObject object = objectIterator.next ();
+						delete(object, objectMapping.getProperties());
 					}
-				}
-				// Now remove unneeded grants
-				for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); objectIterator.hasNext();)
-				{
-					ExtensibleObject object = objectIterator.next ();
-					delete(object, objectMapping.getProperties());
 				}
 			}
 		}
@@ -632,7 +658,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return accountNames;
 	}
 
-	public Usuari getUserInfo(String userAccount) throws RemoteException,
+	public Account getAccountInfo(String userAccount) throws RemoteException,
 			InternalErrorException {
 		ValueObjectMapper vom = new ValueObjectMapper();
 		Account acc = new Account();
@@ -645,25 +671,28 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT) || 
 					objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER))
 			{
+				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, objectMapping);
 				for (String tag: getTags(objectMapping.getProperties(), "selectByAccountName"))
 				{
-					for ( ExtensibleObject obj : selectSystemObjects (sample, objectMapping, objectMapping.getProperties().get(tag)) )
+					for ( ExtensibleObject obj : selectSystemObjects (translatedSample, objectMapping, objectMapping.getProperties().get(tag)) )
 					{
 						ExtensibleObject soffidObj = objectTranslator.parseInputObject(obj, objectMapping);
 						if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
 						{
 							Account acc2 = vom.parseAccount(soffidObj);
-							Usuari u;
-							u  = new Usuari ();
-							u.setCodi(userAccount);
-							u.setFullName(acc2.getDescription());
-							u.setNom(acc2.getDescription());
-							u.setPrimerLlinatge(userAccount);
-							return u;
+							return acc2;
 						}
 						else
 						{
-							return vom.parseUsuari(soffidObj);
+							Usuari u = vom.parseUsuari(soffidObj);
+							Account acc2 = vom.parseAccount(soffidObj);
+							if (acc2.getName() == null)
+								acc2.setName(u.getCodi());
+							if (acc2.getDescription() == null)
+								acc2.setDescription(u.getFullName());
+							if (acc2.getDescription() == null)
+								acc2.setDescription(u.getNom()+" "+u.getPrimerLlinatge());
+							return acc2;
 						}
 					}
 				}
@@ -709,9 +738,10 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		{
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ROLE))
 			{
+				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, objectMapping);
 				for (String tag: getTags(objectMapping.getProperties(), "selectByName"))
 				{
-					for ( ExtensibleObject obj : selectSystemObjects (sample, objectMapping, objectMapping.getProperties().get(tag)) )
+					for ( ExtensibleObject obj : selectSystemObjects (translatedSample, objectMapping, objectMapping.getProperties().get(tag)) )
 					{
 						ExtensibleObject soffidObj = objectTranslator.parseInputObject(obj, objectMapping);
 						return vom.parseRol(soffidObj);
@@ -723,7 +753,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return null;
 	}
 
-	public List<Rol> getAccountRoles(String userAccount)
+	public List<RolGrant> getAccountGrants(String userAccount)
 			throws RemoteException, InternalErrorException {
 		RolGrant grant = new RolGrant();
 		grant.setOwnerAccountName(userAccount);
@@ -732,7 +762,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		
 		GrantExtensibleObject sample = new GrantExtensibleObject(grant, getServer());
 		ValueObjectMapper vom = new ValueObjectMapper();
-		List<Rol> result = new LinkedList<Rol>();
+		List<RolGrant> result = new LinkedList<RolGrant>();
 		
 		// For each mapping
 		for ( ExtensibleObjectMapping objectMapping: objectMappings)
@@ -741,19 +771,17 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ALL_GRANTED_ROLES))
 			{
 				// First get existing roles
+				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, objectMapping);
 				Collection<? extends ExtensibleObject> existingRoles ;
 				for (String tag: getTags(objectMapping.getProperties(), "selectByAccount"))
 				{
-					existingRoles = selectSystemObjects (sample, objectMapping, objectMapping.getProperties().get(tag));
+					existingRoles = selectSystemObjects (translatedSample, objectMapping, objectMapping.getProperties().get(tag));
 					for (Iterator <? extends ExtensibleObject> objectIterator = existingRoles.iterator();  objectIterator.hasNext();)
 					{
 						ExtensibleObject object = objectIterator.next ();
 						ExtensibleObject soffidObject = objectTranslator.parseInputObject(object, objectMapping);
 						grant = vom.parseGrant(soffidObject);
-						Rol r = new Rol();
-						r.setNom(grant.getRolName());
-						r.setBaseDeDades(grant.getDispatcher());
-						result.add (r);
+						result.add (grant);
 					}
 				}
 			}
@@ -810,47 +838,58 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		for ( ExtensibleObjectMapping objectMapping: objectMappings)
 		{
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_GRANTED_ROLE) ||
+					objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_GRANT) ||
 					objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ALL_GRANTED_ROLES))
 			{
 				ExtensibleObject sample = objectTranslator.generateObject( new GrantExtensibleObject(grant, getServer()), objectMapping);
 				// First get existing roles
 				LinkedList<ExtensibleObject> existingRoles = new LinkedList<ExtensibleObject>();
+				boolean foundSelect = false;
 				for (String tag: getTags(objectMapping.getProperties(), "selectByAccount"))
 				{
 					existingRoles.addAll ( selectSystemObjects (sample, objectMapping, objectMapping.getProperties().get(tag)) );
+					foundSelect = true;
 				}
-				// Now get roles to have
-				Collection<RolGrant> grants = new LinkedList<RolGrant> (initialGrants);
-				// Now add non existing roles
-				for (Iterator<RolGrant> grantIterator = grants.iterator(); grantIterator.hasNext(); )
+				if (foundSelect)
 				{
-					RolGrant newGrant = grantIterator.next();
-					
-					// Check if this account is already granted
-					boolean found = false;
-					for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); ! found && objectIterator.hasNext();)
+					// Now get roles to have
+					Collection<RolGrant> grants = new LinkedList<RolGrant> (initialGrants);
+					// Now add non existing roles
+					for (Iterator<RolGrant> grantIterator = grants.iterator(); grantIterator.hasNext(); )
 					{
-						ExtensibleObject object = objectIterator.next ();
-						String roleName = vom.toSingleString(objectTranslator.parseInputAttribute("grantedRole", object, objectMapping));
-						if (roleName != null && roleName.equals (newGrant.getRolName()))
+						RolGrant newGrant = grantIterator.next();
+						
+						// Check if this account is already granted
+						boolean found = false;
+						for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); ! found && objectIterator.hasNext();)
 						{
-							objectIterator.remove();
-							found = true;
+							ExtensibleObject object = objectIterator.next ();
+							String roleName = vom.toSingleString(objectTranslator.parseInputAttribute("grantedRole", object, objectMapping));
+							if (roleName != null && roleName.equals (newGrant.getRolName()))
+							{
+								String domainValue = vom.toSingleString(objectTranslator.parseInputAttribute("domainValue", object, objectMapping));
+								if (domainValue == null && newGrant.getDomainValue() == null ||
+										newGrant.getDomainValue() != null && newGrant.getDomainValue().equals(domainValue))
+								{
+									objectIterator.remove();
+									found = true;
+								}
+							}
+						}
+						if (! found)
+						{
+							newGrant.setOwnerAccountName(accountName);
+							newGrant.setOwnerDispatcher(getCodi());
+							ExtensibleObject object = objectTranslator.generateObject( new GrantExtensibleObject(newGrant, getServer()), objectMapping);
+							updateObject(object);
 						}
 					}
-					if (! found)
+					// Now remove unneeded grants
+					for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); objectIterator.hasNext();)
 					{
-						newGrant.setOwnerAccountName(accountName);
-						newGrant.setOwnerDispatcher(getCodi());
-						ExtensibleObject object = objectTranslator.generateObject( new GrantExtensibleObject(newGrant, getServer()), objectMapping);
-						updateObject(object);
+						ExtensibleObject object = objectIterator.next ();
+						delete(object, objectMapping.getProperties());
 					}
-				}
-				// Now remove unneeded grants
-				for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); objectIterator.hasNext();)
-				{
-					ExtensibleObject object = objectIterator.next ();
-					delete(object, objectMapping.getProperties());
 				}
 			}
 		}
@@ -886,6 +925,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		Account acc = new Account();
 		acc.setName(accountName);
 		acc.setDescription(null);
+		acc.setDisabled(true);
 		ExtensibleObject soffidObject = new AccountExtensibleObject(acc, getServer());
 		
 		// First update role
@@ -893,7 +933,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		{
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
 			{
-				delete(soffidObject, objectMapping.getProperties());
+				ExtensibleObject sqlobject = objectTranslator.generateObject(soffidObject, objectMapping);
+				delete(sqlobject, objectMapping.getProperties());
 			}
 		}
 	}
@@ -965,6 +1006,33 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			}
 		}
 		return false;
+	}
+	
+	void debugObject (String msg, Map<String,Object> obj, String indent)
+	{
+		if (debugEnabled)
+		{
+			if (msg != null)
+				log.info(indent + msg);
+			for (String attribute: obj.keySet())
+			{
+				Object subObj = obj.get(attribute);
+				if (subObj == null)
+				{
+					log.info (indent+attribute.toString()+": null");
+				}
+				else if (subObj instanceof Map)
+				{
+					log.info (indent+attribute.toString()+": Object {");
+					debugObject (null, (Map<String, Object>) subObj, indent + "   ");
+					log.info (indent+"}");
+				}
+				else
+				{
+					log.info (indent+attribute.toString()+": "+subObj.toString());
+				}
+			}
+		}
 	}
 }
 	

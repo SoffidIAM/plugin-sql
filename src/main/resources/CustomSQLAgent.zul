@@ -23,7 +23,7 @@
 		</row>
 		<row>
 			<input_etiqueta value="Driver" />
-			<listbox bind="@param5" mold="select"  disabled="{!canModifyAgent}" width="100px">
+			<listbox bind="@param6" mold="select"  disabled="{!canModifyAgent}" width="100px">
 				<listitem value="mysql">
 					<listcell label="MySQL"/>
 				</listitem>
