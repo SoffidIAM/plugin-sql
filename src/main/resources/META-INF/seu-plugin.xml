@@ -42,8 +42,6 @@
 		<object systemObject="USER_ROLES" soffidObject="grantedRole">
 			<property name="selectByAccount" value="SELECT * FROM USER_ROLES WHERE USERNAME=:USER"/>
 			<property name="selectByRole" value="SELECT * FROM USER_ROLES WHERE USERNAME=:USER"/>
-			<property name="check" value="SELECT 1 FROM USER_ROLES WHERE USERNAME=:USER WHERE ROLNAME=:ROL"/>
-			<property name="update" value=""/>
 			<property name="delete" value="DELETE FROM USER_ROLES WHERE ID=:ID"/>
 			<property name="insert" value="INSERT INTO USER_ROLES (USETNAME, ROLNAME) VALUES (:USERNAME, :ROLNAME)"/>
 			<mapping soffidAttribute='accountName' systemAttribute='USER'
