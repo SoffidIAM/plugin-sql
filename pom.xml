@@ -10,12 +10,12 @@
 	<artifactId>sql-plugin</artifactId>
 	<packaging>jar</packaging>
 	<name>LDAP plugin</name>
-	<version>1.0.1-SNAPSHOT</version>
+	<version>1.1.0</version>
 	<dependencies>
 		<dependency>
 			<groupId>com.soffid.iam.sync</groupId>
 			<artifactId>syncserver</artifactId>
-			<version>1.5.0-beta-1</version>
+			<version>1.5.0</version>
 		</dependency>
 		<dependency>
 			<groupId>mysql</groupId>
@@ -48,7 +48,7 @@
 	</dependencies>
 	<scm>
 		<connection>scm:git:ssh://git@stash.dev.lab:7999/iam2/plugin-sql.git</connection>
-	  <tag>HEAD</tag>
+	  <tag>sql-plugin-1.1.0</tag>
   </scm>
 	<licenses>
 		<license>
