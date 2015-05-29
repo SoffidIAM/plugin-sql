@@ -24,6 +24,8 @@ import java.util.regex.Pattern;
 
 import javax.ejb.RemoveException;
 
+import org.bouncycastle.asn1.util.Dump;
+
 import com.informix.jdbc.IfxDriver;
 import com.mysql.jdbc.Driver;
 import com.soffid.iam.api.Group;
@@ -117,7 +119,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	private String driver;
 	
-	static JDBCPool pool = new JDBCPool();
+	static HashMap<String,JDBCPool> pools = new HashMap<String, JDBCPool>();
+	
+	JDBCPool pool = null;
 
 
 	/**
@@ -174,6 +178,12 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
         } catch (Exception e) {
             log.info("Error registering driver: {}", e, null);
         }
+		pool = pools.get(getCodi());
+		if ( pool == null)
+		{
+			pool = new JDBCPool();
+			pools.put(getCodi(), pool);
+		}
         pool.setUrl(url);
         pool.setPassword(dbPassword.getPassword());
         pool.setUser(dbUser);
@@ -297,6 +307,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		Connection conn;
 		try {
 			conn = pool.getConnection();
+			conn.setAutoCommit(true);
 		} catch (Exception e1) {
 			throw new InternalErrorException("Error connecting to database ", e1);
 		}
@@ -383,7 +394,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					paramEnd ++;
 				}
 				String param = sentence.substring(paramStart, paramEnd);
-				parameters.add(obj.getAttribute(param));
+				Object paramValue =  obj.getAttribute(param);
+				parameters.add(paramValue);
 				position = paramEnd;
 			}
 		} while (position < sentence.length());
@@ -597,25 +609,37 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			QueryHelper qh = new QueryHelper(conn);
 			qh.setEnableNullSqlObject(true);
 			try {
-				log.info("Executing "+parsedSentence);
+				if (debugEnabled)
+					log.info("Executing "+parsedSentence);
 				for (Object param: parameters)
 				{
-					log.info("   Param: "+(param == null ? "null": param.toString()));
+					if (debugEnabled)
+						log.info("   Param: "+(param == null ? "null": param.toString()));
 				}
 	
 				List<Object[]> rows = qh.select(parsedSentence, parameters.toArray());
 				for (Object[] row: rows)
 				{
+					StringBuffer buffer = new StringBuffer();
 					ExtensibleObject rowObject = new ExtensibleObject();
 					rowObject.setObjectType(objectMapping.getSystemObject());
 					for (int i = 0; i < row.length; i ++)
 					{
 						String param = qh.getColumnNames().get(i);
 						rowObject.setAttribute(param, row[i]);
+						if (debugEnabled)
+						{
+							if (i == 0) buffer.append ("ROW: ");
+							else buffer.append (", ");
+							if (row[i] == null)
+								buffer.append ("NULL");
+							else
+								buffer.append (row[i].toString());
+						}
 					}
+					log.info (buffer.toString());
 					
 					result.add ( rowObject );
-					
 				}
 			} catch (SQLException e) {
 				throw new InternalErrorException("Error executing sentence "+parsedSentence, e);
@@ -685,8 +709,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		// For each mapping
 		for ( ExtensibleObjectMapping objectMapping: objectMappings)
 		{
-			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT) || 
-					objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER))
+			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT) )
 			{
 				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, objectMapping);
 				for (String tag: getTags(objectMapping.getProperties(), "selectByAccountName"))
@@ -710,6 +733,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 						{
 							Usuari u = vom.parseUsuari(soffidObj);
 							Account acc2 = vom.parseAccount(soffidObj);
+							acc2.setDispatcher(getCodi());
 							if (acc2.getName() == null)
 								acc2.setName(u.getCodi());
 							if (acc2.getDescription() == null)
@@ -828,6 +852,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		Account acc = new Account();
 		acc.setName(accountName);
 		acc.setDescription(userData.getFullName());
+		acc.setDispatcher(getCodi());
 		ExtensibleObject soffidObject = new UserExtensibleObject(acc, userData, getServer());
 	
 
@@ -893,6 +918,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					{
 						RolGrant newGrant = grantIterator.next();
 						
+						if (debugEnabled)
+							log.info ("Testing rol grant "+newGrant);
+						
 						// Check if this account is already granted
 						boolean found = false;
 						for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); ! found && objectIterator.hasNext();)
@@ -906,6 +934,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 										newGrant.getDomainValue() != null && newGrant.getDomainValue().equals(domainValue))
 								{
 									objectIterator.remove();
+									if (debugEnabled)
+										debugObject("Found rol grant "+newGrant+": ", object, "");
 									found = true;
 								}
 							}
@@ -915,6 +945,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 							newGrant.setOwnerAccountName(accountName);
 							newGrant.setOwnerDispatcher(getCodi());
 							ExtensibleObject object = objectTranslator.generateObject( new GrantExtensibleObject(newGrant, getServer()), objectMapping);
+							debugObject("Role to grant: ", object, "");
 							updateObject(object);
 						}
 					}
@@ -922,6 +953,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); objectIterator.hasNext();)
 					{
 						ExtensibleObject object = objectIterator.next ();
+						debugObject("Role to revoke: ", object, "");
 						delete(object, objectMapping.getProperties());
 					}
 				}
@@ -935,6 +967,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		Account acc = new Account();
 		acc.setName(accountName);
 		acc.setDescription(description);
+		acc.setDispatcher(getCodi());
 		ExtensibleObject soffidObject = new AccountExtensibleObject(acc, getServer());
 		String password;
 		password = getAccountPassword(accountName);
@@ -960,6 +993,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		acc.setName(accountName);
 		acc.setDescription(null);
 		acc.setDisabled(true);
+		acc.setDispatcher(getCodi());
 		ExtensibleObject soffidObject = new AccountExtensibleObject(acc, getServer());
 		
 		// First update role
@@ -981,6 +1015,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		Account acc = new Account();
 		acc.setName(accountName);
 		acc.setDescription(userData.getFullName());
+		acc.setDispatcher(getCodi());
 		ExtensibleObject soffidObject = new UserExtensibleObject(acc, userData, getServer());
 	
 		soffidObject.put("password", getHashPassword(password));
@@ -1018,6 +1053,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			throws RemoteException, InternalErrorException {
 		Account acc = new Account();
 		acc.setName(accountName);
+		acc.setDispatcher(getCodi());
 		ExtensibleObject soffidObject = new UserExtensibleObject(acc, null, getServer());
 	
 		soffidObject.put("password", getHashPassword(password));
