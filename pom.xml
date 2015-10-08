@@ -10,7 +10,7 @@
 	<artifactId>sql-plugin</artifactId>
 	<packaging>jar</packaging>
 	<name>LDAP plugin</name>
-	<version>1.1.1-SNAPSHOT</version>
+	<version>1.1.2-SNAPSHOT</version>
 	<dependencies>
 		<dependency>
 			<groupId>com.soffid.iam.sync</groupId>
