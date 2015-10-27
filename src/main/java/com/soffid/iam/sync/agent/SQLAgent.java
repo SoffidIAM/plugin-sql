@@ -1,44 +1,30 @@
 package com.soffid.iam.sync.agent;
 
-import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
 import java.rmi.RemoteException;
 import java.security.MessageDigest;
+import java.sql.CallableStatement;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
+import java.sql.Types;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.Vector;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-import javax.ejb.RemoveException;
-
-import org.bouncycastle.asn1.util.Dump;
-
-import com.informix.jdbc.IfxDriver;
-import com.mysql.jdbc.Driver;
-import com.soffid.iam.api.Group;
-import com.soffid.iam.api.RoleGrant;
-
+import bsh.EvalError;
+import bsh.Interpreter;
+import bsh.NameSpace;
+import bsh.Primitive;
+import oracle.jdbc.driver.OracleTypes;
 import es.caib.seycon.ng.comu.Account;
-import es.caib.seycon.ng.comu.AttributeDirection;
-import es.caib.seycon.ng.comu.AttributeMapping;
-import es.caib.seycon.ng.comu.DadaUsuari;
-import es.caib.seycon.ng.comu.Dispatcher;
-import es.caib.seycon.ng.comu.Grup;
-import es.caib.seycon.ng.comu.LlistaCorreu;
-import es.caib.seycon.ng.comu.ObjectMapping;
 import es.caib.seycon.ng.comu.Password;
 import es.caib.seycon.ng.comu.Rol;
 import es.caib.seycon.ng.comu.RolGrant;
@@ -46,8 +32,8 @@ import es.caib.seycon.ng.comu.SoffidObjectType;
 import es.caib.seycon.ng.comu.Usuari;
 import es.caib.seycon.ng.exception.InternalErrorException;
 import es.caib.seycon.ng.exception.UnknownRoleException;
-import es.caib.seycon.ng.exception.UnknownUserException;
 import es.caib.seycon.ng.sync.agent.Agent;
+import es.caib.seycon.ng.sync.bootstrap.NullSqlObjet;
 import es.caib.seycon.ng.sync.bootstrap.QueryHelper;
 import es.caib.seycon.ng.sync.engine.extobj.AccountExtensibleObject;
 import es.caib.seycon.ng.sync.engine.extobj.GrantExtensibleObject;
@@ -62,8 +48,6 @@ import es.caib.seycon.ng.sync.intf.AuthoritativeIdentitySource;
 import es.caib.seycon.ng.sync.intf.ExtensibleObject;
 import es.caib.seycon.ng.sync.intf.ExtensibleObjectMapping;
 import es.caib.seycon.ng.sync.intf.ExtensibleObjectMgr;
-import es.caib.seycon.ng.sync.intf.ExtensibleObjects;
-import es.caib.seycon.ng.sync.intf.ReconcileMgr;
 import es.caib.seycon.ng.sync.intf.ReconcileMgr2;
 import es.caib.seycon.ng.sync.intf.RoleMgr;
 import es.caib.seycon.ng.sync.intf.UserMgr;
@@ -254,7 +238,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		for (String tag: getTags (properties, "insert"))
 		{
 			String sentence = properties.get(tag);
-			executeSentence (sentence, obj, null);
+			executeSentence (sentence, obj);
 		}
 	}
 
@@ -263,7 +247,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		for (String tag: getTags (properties, "delete"))
 		{
 			String sentence = properties.get(tag);
-			executeSentence (sentence, obj, null);
+			executeSentence (sentence, obj);
 		}
 	}
 
@@ -272,7 +256,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		for (String tag: getTags (properties, "update"))
 		{
 			String sentence = properties.get(tag);
-			executeSentence (sentence, obj, null);
+			executeSentence (sentence, obj);
 		}
 	}
 
@@ -280,18 +264,30 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		for (String tag: getTags (properties, "check"))
 		{
 			String sentence = properties.get(tag);
-			int rows = executeSentence (sentence, obj, null);
+			String filter = properties.get(tag+"Filter");
+			int rows = executeSentence (sentence, obj, filter);
 			if (rows > 0)
+			{
+				if (debugEnabled)
+					log.info("Object already exists");
 				return true;
+			}
 		}
+		if (debugEnabled)
+			log.info("Object does not exist");
 		return false;
 	}
 
-	private int executeSentence(String sentence, ExtensibleObject obj, List<Object[]> result) throws InternalErrorException {
+	private int executeSentence(String sentence, ExtensibleObject obj) throws InternalErrorException {
+		return executeSentence(sentence, obj, null);
+	}
+	
+	private int executeSentence(String sentence, ExtensibleObject obj, String filter) throws InternalErrorException {
 		StringBuffer b = new StringBuffer ();
 		List<Object> parameters = new LinkedList<Object>();
-		
-		parseSentence(sentence, obj, b, parameters);
+
+		Object cursor = new Object();
+		parseSentence(sentence, obj, b, parameters, cursor);
 		
 		String parsedSentence = b.toString().trim();
 		
@@ -300,7 +296,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			log.info("Executing "+parsedSentence);
 			for (Object param: parameters)
 			{
-				log.info("   Param: "+(param == null ? "null": param.toString()));
+				log.info("   Param: "+(param == null ? "null": param.toString()+" ["
+						+param.getClass().toString()+"]"));
 			}
 		}
 		
@@ -316,22 +313,46 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		
 			if (parsedSentence.toLowerCase().startsWith("select"))
 			{
+				if (debugEnabled)
+					log.info("Getting rows");
 				QueryHelper qh = new QueryHelper(conn);
 				qh.setEnableNullSqlObject(true);
 				try {
 					List<Object[]> rows = qh.select(parsedSentence, parameters.toArray());
+					log.info("Got rows size = "+rows.size());
+					int rowsNumber = 0;
 					for (Object[] row: rows)
 					{
+						if (debugEnabled)
+							log.info("Got row ");
+						ExtensibleObject eo = new ExtensibleObject();
+						eo.setObjectType(obj.getObjectType());
 						for (int i = 0; i < row.length; i ++)
 						{
 							String param = qh.getColumnNames().get(i);
-							if (obj.getAttribute(param) == null)
+							eo.setAttribute(param, row[i]);
+						}
+						if (passFilter (filter, eo, obj))
+						{
+							rowsNumber ++;
+							for (int i = 0; i < row.length; i ++)
 							{
-								obj.setAttribute(param, row[i]);
+								String param = qh.getColumnNames().get(i);
+								if (obj.getAttribute(param) == null)
+								{
+									obj.setAttribute(param, row[i]);
+								}
 							}
 						}
+						else
+						{
+							if (debugEnabled)
+								log.info("Row dows not match filter "+filter);
+						}
 					}
-					return rows.size();
+					if (debugEnabled)
+						log.info("Rows number = "+rowsNumber);
+					return rowsNumber;
 				} catch (SQLException e) {
 					throw new InternalErrorException("Error executing sentence "+parsedSentence, e);
 				}
@@ -347,6 +368,45 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					throw new InternalErrorException("Error executing sentence "+parsedSentence, e);
 				}
 			} 
+			else if (parsedSentence.toLowerCase().startsWith("{call") && ORACLE_DRIVER.equals(driver))
+			{
+				try {
+					List<Object[]> result = executeCall(conn, null, parameters,
+							cursor, parsedSentence);
+					int rowsNumber = 0;
+					Object [] header = null;
+					for (Object[] row: result)
+					{
+						if (header == null)
+							header = row;
+						else
+						{
+							ExtensibleObject eo = new ExtensibleObject();
+							eo.setObjectType(obj.getObjectType());
+							for (int i = 0; i < row.length; i ++)
+							{
+								String param = header[i].toString();
+								eo.setAttribute(param, row[i]);
+							}
+							if (passFilter (filter, eo, obj))
+							{
+								rowsNumber ++;
+								for (int i = 0; i < row.length; i ++)
+								{
+									String param = header[i].toString();
+									if (obj.getAttribute(param) == null)
+									{
+										obj.setAttribute(param, row[i]);
+									}
+								}
+							}
+						}
+					}
+					return rowsNumber;
+				} catch (SQLException e) {
+					throw new InternalErrorException("Error executing sentence "+parsedSentence, e);
+				}
+			}
 			else 
 			{
 				QueryHelper qh = new QueryHelper(conn);
@@ -364,8 +424,20 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	}
 
+	private boolean passFilter(String filter, ExtensibleObject eo, ExtensibleObject query) throws InternalErrorException {
+		if (filter == null || filter.trim().length() == 0)
+			return true;
+		
+		eo.setAttribute("query", query);
+		Object obj = objectTranslator.eval(filter, eo);
+		if (obj == null || Boolean.FALSE.equals(obj))
+			return false;
+		else
+			return true;
+	}
+
 	private void parseSentence(String sentence, ExtensibleObject obj,
-			StringBuffer parsedSentence, List<Object> parameters) {
+			StringBuffer parsedSentence, List<Object> parameters, Object outputCursor) {
 		int position = 0;
 		// First, transforma sentence into a valid SQL API sentence
 		do
@@ -385,7 +457,6 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			else
 			{
 				parsedSentence.append (sentence.substring(position, next));
-				parsedSentence.append ("?");
 				int paramStart = next + 1;
 				int paramEnd = paramStart;
 				while (paramEnd < sentence.length() && 
@@ -393,9 +464,18 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				{
 					paramEnd ++;
 				}
-				String param = sentence.substring(paramStart, paramEnd);
-				Object paramValue =  obj.getAttribute(param);
-				parameters.add(paramValue);
+				if (paramEnd == paramStart) // A := is being used
+					parsedSentence.append (":");
+				else
+				{
+					parsedSentence.append ("?");
+					String param = sentence.substring(paramStart, paramEnd);
+					Object paramValue =  obj.getAttribute(param);
+					if (paramValue == null && param.toLowerCase().startsWith("return"))
+						parameters.add(outputCursor);
+					else
+						parameters.add(paramValue);
+				}
 				position = paramEnd;
 			}
 		} while (position < sentence.length());
@@ -432,55 +512,65 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		try{
 			for ( ExtensibleObjectMapping objMapping: objectMappings)
 			{
-				if (objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER))
+				if (objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER) ||
+						objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_AUTHORITATIVE_CHANGE))
 				{
 					for (String tag: getTags (objMapping.getProperties(), "selectAll"))
 					{
+						String filter = objMapping.getProperties().get(tag+"Filter");
 						String sentence = objMapping.getProperties().get(tag);
-						StringBuffer b = new StringBuffer ();
-						List<Object> parameters = new LinkedList<Object>();
-						
-						parseSentence(sentence, emptyObject, b, parameters);
-						
-						String parsedSentence = b.toString().trim();
-						
-						QueryHelper qh = new QueryHelper(conn);
-						qh.setEnableNullSqlObject(true);
 						try {
-							List<Object[]> rows = qh.select(parsedSentence, parameters.toArray());
+							List<Object[]> rows = performSelect(conn, sentence, emptyObject, null);
+							Object [] header = null;
 							for (Object[] row: rows)
 							{
-								ExtensibleObject resultObject = new ExtensibleObject();
-								resultObject.setObjectType(objMapping.getSystemObject());
-								for (int i = 0; i < row.length; i ++)
+								if (header == null)
+									header = row;
+								else
 								{
-									String param = qh.getColumnNames().get(i);
-									if (resultObject.getAttribute(param) == null)
+									ExtensibleObject resultObject = new ExtensibleObject();
+									resultObject.setObjectType(objMapping.getSystemObject());
+									for (int i = 0; i < row.length; i ++)
 									{
-										resultObject.setAttribute(param, row[i]);
+										String param = header[i].toString();
+										if (resultObject.getAttribute(param) == null)
+										{
+											resultObject.setAttribute(param, row[i]);
+										}
 									}
-								}
-								debugObject("Got authoritative change", resultObject, "");
-								ExtensibleObject translated = objectTranslator.parseInputObject(resultObject, objMapping);
-								debugObject("Translated to", translated, "");
-								Usuari usuari = new ValueObjectMapper().parseUsuari(translated);
-								if (usuari != null)
-								{
-									if (debugEnabled && usuari != null)
-										log.info ("Result user: "+usuari.toString());
-									Long changeId = new Long(lastChangeId++);
-									AuthoritativeChange ch = new AuthoritativeChange();
-									ch.setId(new AuthoritativeChangeIdentifier());
-									ch.getId().setInternalId(changeId);
-									ch.setUser(usuari);
-									Map<String,Object> attributes = (Map<String, Object>) translated.getAttribute("attributes");
-									ch.setAttributes(attributes);
-									changes.add(ch);
-									changeIds.add(changeId);
+									debugObject("Got authoritative change", resultObject, "");
+									if (!passFilter(filter, resultObject, null))
+										log.info ("Discarding row");
+									else
+									{
+										ExtensibleObject translated = objectTranslator.parseInputObject(resultObject, objMapping);
+										debugObject("Translated to", translated, "");
+										AuthoritativeChange ch = new ValueObjectMapper().parseAuthoritativeChange(translated);
+										if (ch != null)
+										{
+											changes.add(ch);
+										} else {
+											Usuari usuari = new ValueObjectMapper().parseUsuari(translated);
+											if (usuari != null)
+											{
+												if (debugEnabled && usuari != null)
+													log.info ("Result user: "+usuari.toString());
+												Long changeId = new Long(lastChangeId++);
+												ch = new AuthoritativeChange();
+												ch.setId(new AuthoritativeChangeIdentifier());
+												ch.getId().setInternalId(changeId);
+												ch.setUser(usuari);
+												Map<String,Object> attributes = (Map<String, Object>) translated.getAttribute("attributes");
+												ch.setAttributes(attributes);
+												changes.add(ch);
+												changeIds.add(changeId);
+											}
+										}
+									}
 								}
 							}
 						} catch (SQLException e) {
-							throw new InternalErrorException("Error executing sentence "+parsedSentence, e);
+							throw new InternalErrorException("Error executing sentence "+sentence, e);
 						}
 					}
 				}
@@ -490,6 +580,145 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		} finally {
 			pool.returnConnection();
 		}
+	}
+
+	private List<Object[]> performSelect(Connection conn,
+			String sentence, ExtensibleObject object, Long maxRows) throws SQLException {
+		StringBuffer b = new StringBuffer ();
+		List<Object> parameters = new LinkedList<Object>();
+		Object cursor = new Object();
+		
+		parseSentence(sentence, object, b, parameters, cursor);
+		
+		String parsedSentence = b.toString().trim();
+		
+		if (debugEnabled)
+			log.info("Executing "+parsedSentence);
+		for (Object param: parameters)
+		{
+			if (debugEnabled)
+				log.info("   Param: "+(param == null ? "null": param.toString()));
+		}
+
+		QueryHelper qh = new QueryHelper(conn);
+		qh.setEnableNullSqlObject(true);
+
+		if (parsedSentence.toLowerCase().startsWith("{call") && ORACLE_DRIVER.equals(driver))
+		{
+			
+			List<Object[]> result = executeCall(conn, maxRows, parameters,
+					cursor, parsedSentence);
+			return result;
+		}
+		else
+		{
+			List<Object[]> rows = qh.select(parsedSentence, parameters.toArray());
+			if (debugEnabled)
+				log.info ("Returned "+rows.size()+" rows");
+			Object[] header = qh.getColumnNames().toArray(new Object[0]);
+			rows.add(0, header);
+			return rows;
+		}
+	}
+
+	private List<Object[]> executeCall(Connection conn, Long maxRows,
+			List<Object> parameters, Object cursor, String parsedSentence)
+			throws SQLException {
+		List<Object[]> result = new LinkedList<Object[]>();
+		LinkedList<String> columnNames = new LinkedList<String>();
+		CallableStatement stmt = conn.prepareCall(parsedSentence);
+
+		try {
+			int num = 0;
+			int cursorNumber = -1;
+			for (Object param : parameters)
+			{
+				num++;
+				if (param == null)
+				{
+					stmt.setNull(num, Types.VARCHAR);
+				}
+				else if (param == cursor)
+				{
+					stmt.registerOutParameter(num, OracleTypes.CURSOR);
+					cursorNumber = num;
+				}
+				else if (param instanceof Long)
+				{
+					stmt.setLong(num, (Long) param);
+				}
+				else if (param instanceof Integer)
+				{
+					stmt.setInt(num, (Integer) param);
+				}
+				else if (param instanceof Date)
+				{
+					stmt.setDate(num, (java.sql.Date) param);
+				}
+				else if (param instanceof java.sql.Timestamp)
+				{
+					stmt.setTimestamp(num, (java.sql.Timestamp) param);
+				}
+				else
+				{
+					stmt.setString(num, param.toString());
+				}
+			}
+			stmt.execute();
+			if (cursorNumber >= 0)
+			{
+				long rows = 0;
+				ResultSet rset = (ResultSet) stmt.getObject(cursorNumber);
+				try
+				{
+					int cols = rset.getMetaData().getColumnCount();
+					for (int i = 0; i < cols; i++)
+					{
+						columnNames.add (rset.getMetaData().getColumnLabel(i+1));
+					}
+					result.add(columnNames.toArray());
+					while (rset.next() && (maxRows == null || rows < maxRows.longValue()))
+					{
+						rows++;
+						Object[] row = new Object[cols];
+						for (int i = 0; i < cols; i++)
+						{
+							Object obj = rset.getObject(i + 1);
+							if (obj == null)
+							{
+								int type = rset.getMetaData().getColumnType(i+1);
+								if (type == Types.BINARY ||
+									type == Types.LONGVARBINARY ||
+									type == Types.VARBINARY || type == Types.BLOB ||
+									type == Types.DATE || type == Types.TIMESTAMP ||
+									type == Types.TIME || type == Types.BLOB)
+										row [i] = new NullSqlObjet(type);
+							}
+							else if (obj instanceof Date)
+							{
+								row[i] = rset.getTimestamp(i+1);
+							}
+							else if (obj instanceof BigDecimal)
+							{
+								row[i] = rset.getLong(i+1);
+							}
+							else
+								row[i] = obj;
+						}
+						result.add(row);
+					}
+				}
+				finally
+				{
+					rset.close();
+				}
+			}
+		}
+		finally
+		{
+			stmt.close();
+		}
+		return result;
 	}
 
 	public void commitChange(AuthoritativeChangeIdentifier id)
@@ -541,7 +770,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				boolean foundSelect = false;
 				for (String tag: getTags(objectMapping.getProperties(), "selectByRole"))
 				{
-					existingRoles.addAll ( selectSystemObjects (sample, objectMapping, objectMapping.getProperties().get(tag)) );
+					existingRoles.addAll ( selectSystemObjects (sample, objectMapping, 
+							objectMapping.getProperties().get(tag),
+							 objectMapping.getProperties().get(tag+"Filter")) );
 					foundSelect = true;
 				}
 				if (foundSelect)
@@ -589,14 +820,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	}
 
 	private Collection<? extends ExtensibleObject> selectSystemObjects(
-			ExtensibleObject sample, ExtensibleObjectMapping objectMapping, String sentence) throws InternalErrorException {
-		StringBuffer b = new StringBuffer ();
-		List<Object> parameters = new LinkedList<Object>();
+			ExtensibleObject sample, ExtensibleObjectMapping objectMapping, String sentence, String filter) throws InternalErrorException {
 		List<ExtensibleObject> result = new LinkedList<ExtensibleObject>();
-		
-		parseSentence(sentence, sample, b, parameters);
-		
-		String parsedSentence = b.toString().trim();
 		
 		Connection conn;
 		try {
@@ -606,43 +831,41 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		}
 		try 
 		{
-			QueryHelper qh = new QueryHelper(conn);
-			qh.setEnableNullSqlObject(true);
 			try {
-				if (debugEnabled)
-					log.info("Executing "+parsedSentence);
-				for (Object param: parameters)
-				{
-					if (debugEnabled)
-						log.info("   Param: "+(param == null ? "null": param.toString()));
-				}
-	
-				List<Object[]> rows = qh.select(parsedSentence, parameters.toArray());
+				List<Object[]> rows = performSelect(conn, sentence, sample, null);
+				Object [] headers = null;
 				for (Object[] row: rows)
 				{
-					StringBuffer buffer = new StringBuffer();
-					ExtensibleObject rowObject = new ExtensibleObject();
-					rowObject.setObjectType(objectMapping.getSystemObject());
-					for (int i = 0; i < row.length; i ++)
+					if (headers == null)
+						headers = row;
+					else
 					{
-						String param = qh.getColumnNames().get(i);
-						rowObject.setAttribute(param, row[i]);
-						if (debugEnabled)
+						StringBuffer buffer = new StringBuffer();
+						ExtensibleObject rowObject = new ExtensibleObject();
+						rowObject.setObjectType(objectMapping.getSystemObject());
+						for (int i = 0; i < row.length; i ++)
 						{
-							if (i == 0) buffer.append ("ROW: ");
-							else buffer.append (", ");
-							if (row[i] == null)
-								buffer.append ("NULL");
-							else
-								buffer.append (row[i].toString());
+							String param = headers[i].toString();
+							rowObject.setAttribute(param, row[i]);
+							if (debugEnabled)
+							{
+								if (i == 0) buffer.append ("ROW: ");
+								else buffer.append (", ");
+								if (row[i] == null)
+									buffer.append ("NULL");
+								else
+									buffer.append (row[i].toString());
+							}
 						}
+						log.info (buffer.toString());
+						if (passFilter(filter, rowObject, sample))
+							result.add ( rowObject );
+						else if (debugEnabled)
+							log.info ("Discarding row");
 					}
-					log.info (buffer.toString());
-					
-					result.add ( rowObject );
 				}
 			} catch (SQLException e) {
-				throw new InternalErrorException("Error executing sentence "+parsedSentence, e);
+				throw new InternalErrorException("Error executing sentence "+sentence, e);
 			}
 			return result;
 		} finally {
@@ -684,7 +907,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			{
 				for (String tag: getTags(objectMapping.getProperties(), "selectAll"))
 				{
-					for ( ExtensibleObject obj : selectSystemObjects (sample, objectMapping, objectMapping.getProperties().get(tag)) )
+					for ( ExtensibleObject obj : selectSystemObjects (sample, objectMapping, 
+							objectMapping.getProperties().get(tag),
+							 objectMapping.getProperties().get(tag+"Filter")) )
 					{
 						debugObject("Got system object", obj, "");
 						String accountName = vom.toSingleString(objectTranslator.parseInputAttribute("accountName", obj, objectMapping));
@@ -714,7 +939,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, objectMapping);
 				for (String tag: getTags(objectMapping.getProperties(), "selectByAccountName"))
 				{
-					for ( ExtensibleObject obj : selectSystemObjects (translatedSample, objectMapping, objectMapping.getProperties().get(tag)) )
+					for ( ExtensibleObject obj : selectSystemObjects (translatedSample, objectMapping, 
+							objectMapping.getProperties().get(tag),
+							 objectMapping.getProperties().get(tag+"Filter")) )
 					{
 						debugObject("Got account system object", obj, "");
 						ExtensibleObject soffidObj = objectTranslator.parseInputObject(obj, objectMapping);
@@ -763,7 +990,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			{
 				for (String tag: getTags(objectMapping.getProperties(), "selectAll"))
 				{
-					for ( ExtensibleObject obj : selectSystemObjects (sample, objectMapping, objectMapping.getProperties().get(tag)) )
+					for ( ExtensibleObject obj : selectSystemObjects (sample, objectMapping, 
+							objectMapping.getProperties().get(tag),
+							 objectMapping.getProperties().get(tag+"Filter")) )
 					{
 						debugObject("Got role object", obj, "");
 						String roleName = vom.toSingleString(objectTranslator.parseInputAttribute("name", obj, objectMapping));
@@ -790,15 +1019,24 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		{
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ROLE))
 			{
-				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, objectMapping);
-				for (String tag: getTags(objectMapping.getProperties(), "selectByName"))
+				ExtensibleObjectMapping eom2 = new ExtensibleObjectMapping(objectMapping);
+				eom2.setAttributes(objectMapping.getAttributes());
+				eom2.setProperties(objectMapping.getProperties());
+				eom2.setCondition(null);
+				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, eom2);
+				if (translatedSample != null)
 				{
-					for ( ExtensibleObject obj : selectSystemObjects (translatedSample, objectMapping, objectMapping.getProperties().get(tag)) )
+					for (String tag: getTags(objectMapping.getProperties(), "selectByName"))
 					{
-						debugObject("Got system role object", obj, "");
-						ExtensibleObject soffidObj = objectTranslator.parseInputObject(obj, objectMapping);
-						debugObject("Translated soffid role object", soffidObj, "");
-						return vom.parseRol(soffidObj);
+						for ( ExtensibleObject obj : selectSystemObjects (translatedSample, objectMapping, 
+								objectMapping.getProperties().get(tag),
+								objectMapping.getProperties().get(tag+"Filter")) )
+						{
+							debugObject("Got system role object", obj, "");
+							ExtensibleObject soffidObj = objectTranslator.parseInputObject(obj, objectMapping);
+							debugObject("Translated soffid role object", soffidObj, "");
+							return vom.parseRol(soffidObj);
+						}
 					}
 				}
 			}
@@ -825,11 +1063,13 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ALL_GRANTED_ROLES))
 			{
 				// First get existing roles
-				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, objectMapping);
+				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, objectMapping, true);
 				Collection<? extends ExtensibleObject> existingRoles ;
 				for (String tag: getTags(objectMapping.getProperties(), "selectByAccount"))
 				{
-					existingRoles = selectSystemObjects (translatedSample, objectMapping, objectMapping.getProperties().get(tag));
+					existingRoles = selectSystemObjects (translatedSample, objectMapping, 
+							objectMapping.getProperties().get(tag),
+							 objectMapping.getProperties().get(tag+"Filter"));
 					for (Iterator <? extends ExtensibleObject> objectIterator = existingRoles.iterator();  objectIterator.hasNext();)
 					{
 						ExtensibleObject object = objectIterator.next ();
@@ -870,7 +1110,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		}
 		// Next update role members
 		
-		updateUserRoles (accountName, null, getServer().getAccountRoles(accountName, getCodi()));
+		updateUserRoles (accountName, null, 
+				getServer().getAccountRoles(accountName, getCodi()),
+				getServer().getAccountExplicitRoles(accountName, getCodi()));
 	}
 
 	private String getAccountPassword(String accountName)
@@ -885,7 +1127,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return password;
 	}
 	
-	private void updateUserRoles(String accountName, Usuari userData, Collection<RolGrant> initialGrants) throws InternalErrorException {
+	private void updateUserRoles(String accountName, Usuari userData, 
+			Collection<RolGrant> allGrants, 
+			Collection<RolGrant> explicitGrants) throws InternalErrorException {
 		RolGrant grant = new RolGrant();
 		grant.setOwnerAccountName(accountName);
 		grant.setDispatcher(getCodi());
@@ -906,13 +1150,17 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				boolean foundSelect = false;
 				for (String tag: getTags(objectMapping.getProperties(), "selectByAccount"))
 				{
-					existingRoles.addAll ( selectSystemObjects (sample, objectMapping, objectMapping.getProperties().get(tag)) );
+					existingRoles.addAll ( selectSystemObjects (sample, objectMapping, 
+							objectMapping.getProperties().get(tag),
+							 objectMapping.getProperties().get(tag+"Filter")) );
 					foundSelect = true;
 				}
 				if (foundSelect)
 				{
 					// Now get roles to have
-					Collection<RolGrant> grants = new LinkedList<RolGrant> (initialGrants);
+					Collection<RolGrant> grants = objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ALL_GRANTED_ROLES)?
+							new LinkedList<RolGrant> (allGrants) :
+								new LinkedList<RolGrant> (explicitGrants);
 					// Now add non existing roles
 					for (Iterator<RolGrant> grantIterator = grants.iterator(); grantIterator.hasNext(); )
 					{
@@ -964,10 +1212,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	public void updateUser(String accountName, String description)
 			throws RemoteException, InternalErrorException {
-		Account acc = new Account();
-		acc.setName(accountName);
-		acc.setDescription(description);
-		acc.setDispatcher(getCodi());
+		Account acc = getServer().getAccountInfo(accountName, getCodi());
 		ExtensibleObject soffidObject = new AccountExtensibleObject(acc, getServer());
 		String password;
 		password = getAccountPassword(accountName);
@@ -984,7 +1229,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		}
 		// Next update role members
 		
-		updateUserRoles (accountName, null, getServer().getAccountRoles(accountName, getCodi()));
+		updateUserRoles (accountName, null, getServer().getAccountRoles(accountName, getCodi()),
+				getServer().getAccountExplicitRoles(accountName, getCodi()));
 	}
 
 	public void removeUser(String accountName) throws RemoteException,
@@ -1042,7 +1288,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				{
 					for (String s: updatePasswordTags)
 					{
-						executeSentence(properties.get(s), systemObject, null);
+						executeSentence(properties.get(s), systemObject);
 					}
 				}
 			}
@@ -1070,7 +1316,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				LinkedList<String> updatePasswordTags = getTags(properties, "validatePassword");
 				for (String s: updatePasswordTags)
 				{
-					if ( executeSentence(properties.get(s), systemObject, null) > 0 )
+					if ( executeSentence(properties.get(s), systemObject) > 0 )
 						return true;
 				}
 			}
@@ -1082,6 +1328,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	{
 		if (debugEnabled)
 		{
+			if (indent == null)
+				indent = "";
 			if (msg != null)
 				log.info(indent + msg);
 			for (String attribute: obj.keySet())
