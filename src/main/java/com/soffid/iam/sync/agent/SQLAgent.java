@@ -19,10 +19,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-import bsh.EvalError;
-import bsh.Interpreter;
-import bsh.NameSpace;
-import bsh.Primitive;
 import oracle.jdbc.driver.OracleTypes;
 import es.caib.seycon.ng.comu.Account;
 import es.caib.seycon.ng.comu.Password;
@@ -124,8 +120,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		dbPassword = Password.decode(getDispatcher().getParam1());
 		url = getDispatcher().getParam2();
 		
-		hashType = getDispatcher().getParam4();
-		passwordPrefix = getDispatcher().getParam5();
+		hashType = getDispatcher().getParam3();
+		passwordPrefix = getDispatcher().getParam4();
 		if (passwordPrefix == null)
 			hashType = "{" + hashType + "}";
 		
@@ -730,6 +726,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	public void updateRole(Rol role) throws RemoteException,
 			InternalErrorException {
+		if (!role.getBaseDeDades().equals(getDispatcher().getCodi()))
+			return;
+		
 		ExtensibleObject soffidObject = new RoleExtensibleObject(role, getServer());
 
 		// First update role
@@ -1089,10 +1088,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	public void updateUser(String accountName, Usuari userData)
 			throws RemoteException, InternalErrorException {
-		Account acc = new Account();
-		acc.setName(accountName);
-		acc.setDescription(userData.getFullName());
-		acc.setDispatcher(getCodi());
+		Account acc = getServer().getAccountInfo(accountName, getDispatcher().getCodi());
 		ExtensibleObject soffidObject = new UserExtensibleObject(acc, userData, getServer());
 	
 
