@@ -39,6 +39,9 @@
 				<listitem value="informix">
 					<listcell label="Informix"/>
 				</listitem>
+				<listitem value="db2400">
+					<listcell label="DB2/400"/>
+				</listitem>
 			</listbox>
 		</row>
 		<row>

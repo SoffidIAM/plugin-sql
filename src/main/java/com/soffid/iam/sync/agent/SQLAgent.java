@@ -5,6 +5,7 @@ import java.rmi.RemoteException;
 import java.security.MessageDigest;
 import java.sql.CallableStatement;
 import java.sql.Connection;
+import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -69,6 +70,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	private static final String POSTGRESQL_DRIVER = "postgresql";
 
+	private static final String DB2400_DRIVER = "db2400";
+
 	private static final String MYSQL_DRIVER = "mysql";
 
 	private static final String SQLSERVER_DRIVER = "sqlserver";
@@ -95,7 +98,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	private String passwordPrefix;
 
-	private Collection<ExtensibleObjectMapping> objectMappings;
+	protected Collection<ExtensibleObjectMapping> objectMappings;
 
 	private String driver;
 	
@@ -148,12 +151,19 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			driverClass = "com.mysql.jdbc.Driver";
 		else if (POSTGRESQL_DRIVER.equals(driver))
 			driverClass = "org.postgresql.Driver";
-			
-        try {
+		else if (DB2400_DRIVER.equals(driver))
+			driverClass = "com.ibm.as400.access.AS400JDBCDriver";
+		else
+			log.info ("Unknown driver {} ",driver, null);
+
+		try {
         	if (driverClass != null)
         	{
+        		log.info ("Registering driver "+driverClass);
 	            Class c = Class.forName(driverClass);
-	            DriverManager.registerDriver((java.sql.Driver) c.newInstance());
+	            Driver driver = (java.sql.Driver) c.newInstance();
+	            DriverManager.registerDriver(driver);
+        		log.info ("Registered driver "+driver.toString());
         	}
         } catch (Exception e) {
             log.info("Error registering driver: {}", e, null);
@@ -199,7 +209,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return hash;
 	}
 
-	private LinkedList<String> getTags (Map<String, String> sentences, String prefix)
+	private LinkedList<String> getTags (Map<String, String> sentences, String prefix, String objectType)
 	{
 		LinkedList<String> matches = new LinkedList<String>();
 		for (String tag: sentences.keySet())
@@ -212,52 +222,56 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			}
 		}
 		Collections.sort(matches);
+		if (matches.isEmpty())
+		{
+			log.info("Warning. No SQL sentence found with tag "+prefix);
+		}
 		return matches;
 	}
 	
-	private void updateObject(ExtensibleObject obj)
+	protected void updateObject(ExtensibleObject obj)
 			throws InternalErrorException {
 		Map<String, String> properties = objectTranslator.getObjectProperties(obj);
-		if (exists (obj, properties))
+		if (exists (obj, properties, obj.getObjectType()))
 		{
-			update (obj, properties);
+			update (obj, properties, obj.getObjectType());
 		}
 		else
 		{
-			insert (obj, properties);
+			insert (obj, properties, obj.getObjectType());
 		}
 	}
 
 
-	private void insert(ExtensibleObject obj, Map<String, String> properties) throws InternalErrorException {
+	private void insert(ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException {
 		debugObject("Creating object", obj, "");
-		for (String tag: getTags (properties, "insert"))
+		for (String tag: getTags (properties, "insert", objectType))
 		{
 			String sentence = properties.get(tag);
 			executeSentence (sentence, obj);
 		}
 	}
 
-	private void delete(ExtensibleObject obj, Map<String, String> properties) throws InternalErrorException {
+	protected void delete(ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException {
 		debugObject("Removing object", obj, "");
-		for (String tag: getTags (properties, "delete"))
+		for (String tag: getTags (properties, "delete", objectType))
 		{
 			String sentence = properties.get(tag);
 			executeSentence (sentence, obj);
 		}
 	}
 
-	private void update(ExtensibleObject obj, Map<String, String> properties) throws InternalErrorException {
+	private void update(ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException {
 		debugObject("Updating object", obj, "");
-		for (String tag: getTags (properties, "update"))
+		for (String tag: getTags (properties, "update", objectType))
 		{
 			String sentence = properties.get(tag);
 			executeSentence (sentence, obj);
 		}
 	}
 
-	private boolean exists(ExtensibleObject obj, Map<String, String> properties) throws InternalErrorException {
-		for (String tag: getTags (properties, "check"))
+	private boolean exists(ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException {
+		for (String tag: getTags (properties, "check", objectType))
 		{
 			String sentence = properties.get(tag);
 			String filter = properties.get(tag+"Filter");
@@ -511,7 +525,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				if (objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER) ||
 						objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_AUTHORITATIVE_CHANGE))
 				{
-					for (String tag: getTags (objMapping.getProperties(), "selectAll"))
+					for (String tag: getTags (objMapping.getProperties(), "selectAll", objMapping.getSystemObject()))
 					{
 						String filter = objMapping.getProperties().get(tag+"Filter");
 						String sentence = objMapping.getProperties().get(tag);
@@ -767,7 +781,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				// First get existing roles
 				LinkedList<ExtensibleObject> existingRoles = new LinkedList<ExtensibleObject>();
 				boolean foundSelect = false;
-				for (String tag: getTags(objectMapping.getProperties(), "selectByRole"))
+				for (String tag: getTags(objectMapping.getProperties(), "selectByRole", objectMapping.getSystemObject()))
 				{
 					existingRoles.addAll ( selectSystemObjects (sample, objectMapping, 
 							objectMapping.getProperties().get(tag),
@@ -810,7 +824,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); objectIterator.hasNext();)
 					{
 						ExtensibleObject object = objectIterator.next ();
-						delete(object, objectMapping.getProperties());
+						delete(object, objectMapping.getProperties(), objectMapping.getSystemObject());
 					}
 				}
 			}
@@ -818,7 +832,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		
 	}
 
-	private Collection<? extends ExtensibleObject> selectSystemObjects(
+	protected Collection<? extends ExtensibleObject> selectSystemObjects(
 			ExtensibleObject sample, ExtensibleObjectMapping objectMapping, String sentence, String filter) throws InternalErrorException {
 		List<ExtensibleObject> result = new LinkedList<ExtensibleObject>();
 		
@@ -885,7 +899,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ROLE))
 			{
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-				delete(systemObject, objectMapping.getProperties());
+				delete(systemObject, objectMapping.getProperties(), objectMapping.getSystemObject());
 			}
 		}
 		// Next remove role members
@@ -904,7 +918,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		{
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
 			{
-				for (String tag: getTags(objectMapping.getProperties(), "selectAll"))
+				for (String tag: getTags(objectMapping.getProperties(), "selectAll", objectMapping.getSystemObject()))
 				{
 					for ( ExtensibleObject obj : selectSystemObjects (sample, objectMapping, 
 							objectMapping.getProperties().get(tag),
@@ -936,7 +950,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT) )
 			{
 				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, objectMapping);
-				for (String tag: getTags(objectMapping.getProperties(), "selectByAccountName"))
+				for (String tag: getTags(objectMapping.getProperties(), "selectByAccountName", objectMapping.getSystemObject()))
 				{
 					for ( ExtensibleObject obj : selectSystemObjects (translatedSample, objectMapping, 
 							objectMapping.getProperties().get(tag),
@@ -987,7 +1001,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		{
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ROLE))
 			{
-				for (String tag: getTags(objectMapping.getProperties(), "selectAll"))
+				for (String tag: getTags(objectMapping.getProperties(), "selectAll", objectMapping.getSystemObject()))
 				{
 					for ( ExtensibleObject obj : selectSystemObjects (sample, objectMapping, 
 							objectMapping.getProperties().get(tag),
@@ -1025,7 +1039,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, eom2);
 				if (translatedSample != null)
 				{
-					for (String tag: getTags(objectMapping.getProperties(), "selectByName"))
+					for (String tag: getTags(objectMapping.getProperties(), "selectByName", objectMapping.getSystemObject()))
 					{
 						for ( ExtensibleObject obj : selectSystemObjects (translatedSample, objectMapping, 
 								objectMapping.getProperties().get(tag),
@@ -1064,7 +1078,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				// First get existing roles
 				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, objectMapping, true);
 				Collection<? extends ExtensibleObject> existingRoles ;
-				for (String tag: getTags(objectMapping.getProperties(), "selectByAccount"))
+				for (String tag: getTags(objectMapping.getProperties(), "selectByAccount", objectMapping.getSystemObject()))
 				{
 					existingRoles = selectSystemObjects (translatedSample, objectMapping, 
 							objectMapping.getProperties().get(tag),
@@ -1096,19 +1110,25 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		password = getAccountPassword(accountName);
 		soffidObject.put("password", password);
 		// First update role
+		boolean found = false;
 		for ( ExtensibleObjectMapping objectMapping: objectMappings)
 		{
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER))
 			{
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
 				updateObject(systemObject);
+				found = true;
 			}
+			// Next update role members
+			
+			updateUserRoles (accountName, null, 
+					getServer().getAccountRoles(accountName, getCodi()),
+					getServer().getAccountExplicitRoles(accountName, getCodi()));
 		}
-		// Next update role members
-		
-		updateUserRoles (accountName, null, 
-				getServer().getAccountRoles(accountName, getCodi()),
-				getServer().getAccountExplicitRoles(accountName, getCodi()));
+		if (! found)
+		{
+			updateUser(accountName, userData.getFullName());
+		}
 	}
 
 	private String getAccountPassword(String accountName)
@@ -1144,7 +1164,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				// First get existing roles
 				LinkedList<ExtensibleObject> existingRoles = new LinkedList<ExtensibleObject>();
 				boolean foundSelect = false;
-				for (String tag: getTags(objectMapping.getProperties(), "selectByAccount"))
+				for (String tag: getTags(objectMapping.getProperties(), "selectByAccount", objectMapping.getSystemObject()))
 				{
 					existingRoles.addAll ( selectSystemObjects (sample, objectMapping, 
 							objectMapping.getProperties().get(tag),
@@ -1198,7 +1218,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					{
 						ExtensibleObject object = objectIterator.next ();
 						debugObject("Role to revoke: ", object, "");
-						delete(object, objectMapping.getProperties());
+						delete(object, objectMapping.getProperties(), objectMapping.getSystemObject());
 					}
 				}
 			}
@@ -1244,7 +1264,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
 			{
 				ExtensibleObject sqlobject = objectTranslator.generateObject(soffidObject, objectMapping);
-				delete(sqlobject, objectMapping.getProperties());
+				delete(sqlobject, objectMapping.getProperties(), objectMapping.getSystemObject());
 			}
 		}
 	}
@@ -1272,14 +1292,14 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
 				Map<String, String> properties = objectTranslator.getObjectProperties(systemObject);
 				
-				LinkedList<String> updatePasswordTags = getTags(properties, "updatePassword");
-				if (!exists (systemObject, properties))
+				LinkedList<String> updatePasswordTags = getTags(properties, "updatePassword", objectMapping.getSystemObject());
+				if (!exists (systemObject, properties, objectMapping.getSystemObject()))
 				{
-					insert (systemObject, properties);
+					insert (systemObject, properties, objectMapping.getSystemObject());
 				}
 				
 				if (updatePasswordTags.isEmpty())
-					update (systemObject, properties);
+					update (systemObject, properties, objectMapping.getSystemObject());
 				else
 				{
 					for (String s: updatePasswordTags)
@@ -1309,7 +1329,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping, true);
 				Map<String, String> properties = objectTranslator.getObjectProperties(systemObject);
 				
-				LinkedList<String> updatePasswordTags = getTags(properties, "validatePassword");
+				LinkedList<String> updatePasswordTags = getTags(properties, "validatePassword", objectMapping.getSystemObject());
 				for (String s: updatePasswordTags)
 				{
 					if ( executeSentence(properties.get(s), systemObject) > 0 )
@@ -1347,6 +1367,16 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				}
 			}
 		}
+	}
+
+	public ExtensibleObject getNativeObject(SoffidObjectType type, String object1, String object2)
+			throws RemoteException, InternalErrorException {
+		return null;
+	}
+
+	public ExtensibleObject getSoffidObject(SoffidObjectType type, String object1, String object2)
+			throws RemoteException, InternalErrorException {
+		return null;
 	}
 }
 	
