@@ -28,7 +28,7 @@
 					<listcell label="MySQL"/>
 				</listitem>
 				<listitem value="postgresql">
-					<listcell label="Postresql"/>
+					<listcell label="PostgreSQL"/>
 				</listitem>
 				<listitem value="oracle">
 					<listcell label="Oracle"/>
@@ -52,7 +52,7 @@
 			</hbox>
 		</row>
 		<row>
-			<input_etiqueta value="Password hash algorightm" />
+			<input_etiqueta value="Password hash algorigthm" />
 			<vbox width="90%">
 				<input_dada bind="@param3" lectura="${!canModifyAgent}"
 					width_custom="98%" />
