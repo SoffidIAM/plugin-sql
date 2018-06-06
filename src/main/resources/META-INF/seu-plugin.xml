@@ -8,12 +8,14 @@
 	<agent>
 		<name>Custmizable SQL agent</name>
 		<javaClass>com.soffid.iam.sync.agent.SQLAgent</javaClass>
+		<javaClassV2>com.soffid.iam.sync.agent.SQLAgent2</javaClassV2>
 		<userInterface>CustomSQLAgent.zul</userInterface>
 		<enableAccessControl>false</enableAccessControl>
 
 		<authoritativeSource>true</authoritativeSource>
 		<enableAccessControl>false</enableAccessControl>
 		<enableAttributeMapping>true</enableAttributeMapping>
+		<enableObjectTriggers>true</enableObjectTriggers>
 
 		<object systemObject="USERS" soffidObject="user">
 			<property name="selectAll" value="SELECT * FROM USERS"/>

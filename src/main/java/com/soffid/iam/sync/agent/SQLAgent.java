@@ -22,9 +22,11 @@ import java.util.Map;
 
 import oracle.jdbc.driver.OracleTypes;
 import es.caib.seycon.ng.comu.Account;
+import es.caib.seycon.ng.comu.ObjectMappingTrigger;
 import es.caib.seycon.ng.comu.Password;
 import es.caib.seycon.ng.comu.Rol;
 import es.caib.seycon.ng.comu.RolGrant;
+import es.caib.seycon.ng.comu.SoffidObjectTrigger;
 import es.caib.seycon.ng.comu.SoffidObjectType;
 import es.caib.seycon.ng.comu.Usuari;
 import es.caib.seycon.ng.exception.InternalErrorException;
@@ -229,45 +231,62 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return matches;
 	}
 	
-	protected void updateObject(ExtensibleObject obj)
+	protected void updateObject(ExtensibleObject src, ExtensibleObject obj)
 			throws InternalErrorException {
 		Map<String, String> properties = objectTranslator.getObjectProperties(obj);
 		if (exists (obj, properties, obj.getObjectType()))
 		{
-			update (obj, properties, obj.getObjectType());
+			ExtensibleObject old = select(obj, properties, obj.getObjectType());
+			update (src, old, obj, properties, obj.getObjectType());
 		}
 		else
 		{
-			insert (obj, properties, obj.getObjectType());
+			insert (src, obj, properties, obj.getObjectType());
 		}
 	}
 
 
-	private void insert(ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException {
+	private void insert(ExtensibleObject src, ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException {
 		debugObject("Creating object", obj, "");
+		if (! runTriggers(objectType, SoffidObjectTrigger.PRE_INSERT, null, obj, src))
+		{
+			return;
+		}
 		for (String tag: getTags (properties, "insert", objectType))
 		{
 			String sentence = properties.get(tag);
 			executeSentence (sentence, obj);
 		}
+		runTriggers(objectType, SoffidObjectTrigger.POST_INSERT, null, obj, src);
 	}
 
-	protected void delete(ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException {
+	protected void delete(ExtensibleObject src, ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException {
 		debugObject("Removing object", obj, "");
+				
+		if (! runTriggers(objectType, SoffidObjectTrigger.PRE_DELETE, obj, null, src))
+		{
+			return;
+		}
 		for (String tag: getTags (properties, "delete", objectType))
 		{
 			String sentence = properties.get(tag);
 			executeSentence (sentence, obj);
 		}
+		runTriggers(objectType, SoffidObjectTrigger.POST_DELETE, obj, null, src);
 	}
 
-	private void update(ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException {
+	private void update(ExtensibleObject src, ExtensibleObject old, ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException {
 		debugObject("Updating object", obj, "");
+		if (! runTriggers(objectType, SoffidObjectTrigger.PRE_UPDATE, old, obj, src))
+		{
+			return;
+		}
 		for (String tag: getTags (properties, "update", objectType))
 		{
 			String sentence = properties.get(tag);
 			executeSentence (sentence, obj);
 		}
+		runTriggers(objectType, SoffidObjectTrigger.POST_UPDATE, old, obj, src);
 	}
 
 	private boolean exists(ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException {
@@ -286,6 +305,52 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		if (debugEnabled)
 			log.info("Object does not exist");
 		return false;
+	}
+
+
+	private ExtensibleObject select(ExtensibleObject obj, Map<String, String> properties, String objectType) throws InternalErrorException 
+	{
+
+		Connection conn;
+		try {
+			conn = pool.getConnection();
+		} catch (Exception e1) {
+			throw new InternalErrorException("Error connecting to database ", e1);
+		}
+		try 
+		{
+			for (String tag: getTags (properties, "check", objectType))
+			{
+				String sentence = properties.get(tag);
+				String filter = properties.get(tag+"Filter");
+				List<Object[]> rows = performSelect(conn, sentence, obj, null);
+	
+				for (int i = 1; i < rows.size(); i++)
+				{
+					Object[] row = rows.get(i);
+					Object[] header = rows.get(0);
+					ExtensibleObject resultObject = new ExtensibleObject();
+					resultObject.setObjectType( obj.getObjectType() );
+					for (int j = 0; j < row.length; j ++)
+					{
+						String param = header[j].toString();
+						if (resultObject.getAttribute(param) == null)
+						{
+							resultObject.setAttribute(param, row[j]);
+						}
+					}
+					if (passFilter(filter, resultObject, obj))
+					{
+						return resultObject;
+					}
+				}
+			}
+		} catch (SQLException e1) {
+			throw new InternalErrorException("Error connecting to database ", e1);
+		} finally {
+			pool.returnConnection();
+		}
+		return null;
 	}
 
 	private int executeSentence(String sentence, ExtensibleObject obj) throws InternalErrorException {
@@ -751,7 +816,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ROLE))
 			{
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-				updateObject(systemObject);
+				updateObject(soffidObject, systemObject);
 			}
 		}
 		// Next update role members
@@ -816,15 +881,16 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 							rg.setOwnerDispatcher(account.getDispatcher());
 							rg.setRolName(role.getNom());
 							rg.setDispatcher(role.getBaseDeDades());
-							ExtensibleObject object = objectTranslator.generateObject( new GrantExtensibleObject(rg, getServer()), objectMapping);
-							updateObject(object);
+							GrantExtensibleObject src = new GrantExtensibleObject(rg, getServer());
+							ExtensibleObject object = objectTranslator.generateObject( src, objectMapping);
+							updateObject(src, object);
 						}
 					}
 					// Now remove unneeded grants
 					for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); objectIterator.hasNext();)
 					{
 						ExtensibleObject object = objectIterator.next ();
-						delete(object, objectMapping.getProperties(), objectMapping.getSystemObject());
+						delete(null, object, objectMapping.getProperties(), objectMapping.getSystemObject());
 					}
 				}
 			}
@@ -899,7 +965,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ROLE))
 			{
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-				delete(systemObject, objectMapping.getProperties(), objectMapping.getSystemObject());
+				delete(soffidObject, systemObject, objectMapping.getProperties(), objectMapping.getSystemObject());
 			}
 		}
 		// Next remove role members
@@ -1116,7 +1182,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER))
 			{
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-				updateObject(systemObject);
+				updateObject(soffidObject, systemObject);
 				found = true;
 			}
 			// Next update role members
@@ -1208,9 +1274,10 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 						{
 							newGrant.setOwnerAccountName(accountName);
 							newGrant.setOwnerDispatcher(getCodi());
-							ExtensibleObject object = objectTranslator.generateObject( new GrantExtensibleObject(newGrant, getServer()), objectMapping);
+							GrantExtensibleObject sourceObject = new GrantExtensibleObject(newGrant, getServer());
+							ExtensibleObject object = objectTranslator.generateObject( sourceObject, objectMapping);
 							debugObject("Role to grant: ", object, "");
-							updateObject(object);
+							updateObject(sourceObject, object);
 						}
 					}
 					// Now remove unneeded grants
@@ -1218,7 +1285,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					{
 						ExtensibleObject object = objectIterator.next ();
 						debugObject("Role to revoke: ", object, "");
-						delete(object, objectMapping.getProperties(), objectMapping.getSystemObject());
+						delete(null, object, objectMapping.getProperties(), objectMapping.getSystemObject());
 					}
 				}
 			}
@@ -1240,7 +1307,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
 			{
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-				updateObject(systemObject);
+				updateObject(soffidObject, systemObject);
 			}
 		}
 		// Next update role members
@@ -1264,7 +1331,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
 			{
 				ExtensibleObject sqlobject = objectTranslator.generateObject(soffidObject, objectMapping);
-				delete(sqlobject, objectMapping.getProperties(), objectMapping.getSystemObject());
+				delete(soffidObject, sqlobject, objectMapping.getProperties(), objectMapping.getSystemObject());
 			}
 		}
 	}
@@ -1295,11 +1362,14 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				LinkedList<String> updatePasswordTags = getTags(properties, "updatePassword", objectMapping.getSystemObject());
 				if (!exists (systemObject, properties, objectMapping.getSystemObject()))
 				{
-					insert (systemObject, properties, objectMapping.getSystemObject());
+					insert (soffidObject, systemObject, properties, objectMapping.getSystemObject());
 				}
 				
 				if (updatePasswordTags.isEmpty())
-					update (systemObject, properties, objectMapping.getSystemObject());
+				{
+					ExtensibleObject oldObject = select(systemObject, properties, systemObject.getObjectType());
+					update (soffidObject, oldObject, systemObject, properties, objectMapping.getSystemObject());
+				}
 				else
 				{
 					for (String s: updatePasswordTags)
@@ -1378,5 +1448,50 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			throws RemoteException, InternalErrorException {
 		return null;
 	}
+	
+	private boolean runTriggers(String objectType, SoffidObjectTrigger triggerType, 
+			ExtensibleObject existing, 
+			ExtensibleObject obj,
+			ExtensibleObject src) throws InternalErrorException {
+		List<ObjectMappingTrigger> triggers = getTriggers (objectType, triggerType);
+		for (ObjectMappingTrigger trigger: triggers)
+		{
+	
+			ExtensibleObject eo = new ExtensibleObject();
+			eo.setAttribute("source", src);
+			eo.setAttribute("newObject", obj);
+			eo.setAttribute("oldObject", existing);
+			if ( ! objectTranslator.evalExpression(eo, trigger.getScript()) )
+			{
+				log.info("Trigger "+trigger.getTrigger().toString()+" returned false");
+				if (debugEnabled)
+				{
+					if (existing != null)
+						debugObject("old object", existing, "  ");
+					if (obj != null)
+						debugObject("new object", obj, "  ");
+				}
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private List<ObjectMappingTrigger> getTriggers(String objectType, SoffidObjectTrigger type) {
+		List<ObjectMappingTrigger> triggers = new LinkedList<ObjectMappingTrigger>();
+		for ( ExtensibleObjectMapping objectMapping: objectMappings)
+		{
+			if (objectMapping.getSystemObject().equals(objectType))
+			{
+				for ( ObjectMappingTrigger trigger: objectMapping.getTriggers())
+				{
+					if (trigger.getTrigger() == type)
+						triggers.add(trigger);
+				}
+			}
+		}
+		return triggers;
+	}
+
 }
 	

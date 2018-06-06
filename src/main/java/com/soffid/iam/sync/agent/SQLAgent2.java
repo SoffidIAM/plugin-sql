@@ -86,7 +86,7 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 			if (objectMapping.appliesToSoffidObject(soffidObject))
 			{
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-				updateObject(systemObject);
+				updateObject(soffidObject, systemObject);
 			}
 		}
 	}
@@ -98,7 +98,7 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 			if (objectMapping.appliesToSoffidObject(soffidObject))
 			{
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-				delete(systemObject, objectMapping.getProperties(), objectMapping.getSystemObject());
+				delete(null, systemObject, objectMapping.getProperties(), objectMapping.getSystemObject());
 			}
 		}
 	}
