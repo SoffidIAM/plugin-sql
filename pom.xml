@@ -10,7 +10,7 @@
 	<artifactId>sql-plugin</artifactId>
 	<packaging>jar</packaging>
 	<name>LDAP plugin</name>
-	<version>1.5.0</version>
+	<version>1.5.1-SNAPSHOT</version>
 	<dependencies>
 		<dependency>
 			<groupId>net.sf.jt400</groupId>
