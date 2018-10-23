@@ -30,11 +30,11 @@ import es.caib.seycon.ng.comu.SoffidObjectTrigger;
 import es.caib.seycon.ng.comu.SoffidObjectType;
 import es.caib.seycon.ng.comu.Usuari;
 import es.caib.seycon.ng.exception.InternalErrorException;
-import es.caib.seycon.ng.exception.UnknownRoleException;
 import es.caib.seycon.ng.sync.agent.Agent;
 import es.caib.seycon.ng.sync.bootstrap.NullSqlObjet;
 import es.caib.seycon.ng.sync.bootstrap.QueryHelper;
 import es.caib.seycon.ng.sync.engine.extobj.AccountExtensibleObject;
+import es.caib.seycon.ng.sync.engine.extobj.ExtensibleObjectFinder;
 import es.caib.seycon.ng.sync.engine.extobj.GrantExtensibleObject;
 import es.caib.seycon.ng.sync.engine.extobj.ObjectTranslator;
 import es.caib.seycon.ng.sync.engine.extobj.RoleExtensibleObject;
@@ -47,6 +47,7 @@ import es.caib.seycon.ng.sync.intf.AuthoritativeIdentitySource;
 import es.caib.seycon.ng.sync.intf.ExtensibleObject;
 import es.caib.seycon.ng.sync.intf.ExtensibleObjectMapping;
 import es.caib.seycon.ng.sync.intf.ExtensibleObjectMgr;
+import es.caib.seycon.ng.sync.intf.ExtensibleObjects;
 import es.caib.seycon.ng.sync.intf.ReconcileMgr2;
 import es.caib.seycon.ng.sync.intf.RoleMgr;
 import es.caib.seycon.ng.sync.intf.UserMgr;
@@ -211,7 +212,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return hash;
 	}
 
-	private LinkedList<String> getTags (Map<String, String> sentences, String prefix, String objectType)
+	protected LinkedList<String> getTags (Map<String, String> sentences, String prefix, String objectType)
 	{
 		LinkedList<String> matches = new LinkedList<String>();
 		for (String tag: sentences.keySet())
@@ -358,9 +359,15 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	}
 	
 	private int executeSentence(String sentence, ExtensibleObject obj, String filter) throws InternalErrorException {
+		return executeSentence(sentence, obj, filter, null);
+	}
+	
+	private int executeSentence(String sentence, ExtensibleObject obj, String filter, List<Map<String, Object>> result) throws InternalErrorException {
 		StringBuffer b = new StringBuffer ();
 		List<Object> parameters = new LinkedList<Object>();
-
+		if (result != null)
+			result.clear();
+		
 		Object cursor = new Object();
 		parseSentence(sentence, obj, b, parameters, cursor);
 		
@@ -418,6 +425,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 									obj.setAttribute(param, row[i]);
 								}
 							}
+							if (result != null)
+								result.add(eo);
 						}
 						else
 						{
@@ -446,11 +455,11 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			else if (parsedSentence.toLowerCase().startsWith("{call") && ORACLE_DRIVER.equals(driver))
 			{
 				try {
-					List<Object[]> result = executeCall(conn, null, parameters,
+					List<Object[]> r = executeCall(conn, null, parameters,
 							cursor, parsedSentence);
 					int rowsNumber = 0;
 					Object [] header = null;
-					for (Object[] row: result)
+					for (Object[] row: r)
 					{
 						if (header == null)
 							header = row;
@@ -474,6 +483,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 										obj.setAttribute(param, row[i]);
 									}
 								}
+								if (result != null)
+									result.add(eo);
 							}
 						}
 					}
@@ -499,7 +510,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	}
 
-	private boolean passFilter(String filter, ExtensibleObject eo, ExtensibleObject query) throws InternalErrorException {
+	protected boolean passFilter(String filter, ExtensibleObject eo, ExtensibleObject query) throws InternalErrorException {
 		if (filter == null || filter.trim().length() == 0)
 			return true;
 		
@@ -560,8 +571,57 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			InternalErrorException {
 		this.objectMappings  = objects;
 		objectTranslator = new ObjectTranslator(getDispatcher(), getServer(), objectMappings);
-		
+		objectTranslator.setObjectFinder(new ExtensibleObjectFinder() {
+			
+			public ExtensibleObject find(ExtensibleObject pattern) throws Exception {
+				log.info("Searching for native object "+pattern.toString());
+				return searchObject(pattern);
+			}
+
+			public Collection<Map<String,Object>> invoke (String verb, String command, Map<String, Object> params) throws InternalErrorException
+			{
+				if (debugEnabled)
+				{
+					log.info ("Invoking: "+verb+" on "+command);
+				}
+
+				ExtensibleObject o = new ExtensibleObject();
+				if (params != null)
+				o.putAll(params);
+				if (command == null)
+					command = "";
+				if (verb != null && !verb.trim().isEmpty())
+					command = verb.trim() + " " +command;
+				List<Map<String, Object>> result = new LinkedList<Map<String,Object>>();
+				executeSentence(command, o, null, result );
+				return result;
+			}
+
+		});
+
 	}
+
+	protected ExtensibleObject searchObject(ExtensibleObject pattern) throws InternalErrorException {
+		debugObject("Searching for object", pattern, "");
+		for ( ExtensibleObjectMapping objectMapping: objectMappings)
+		{
+			if (objectMapping.getSystemObject().equals(pattern.getObjectType()) )
+			{
+				for (String tag: getTags(objectMapping.getProperties(), "select", objectMapping.getSystemObject()))
+				{
+					for ( ExtensibleObject obj : selectSystemObjects (pattern, objectMapping, 
+							objectMapping.getProperties().get(tag),
+							 objectMapping.getProperties().get(tag+"Filter")) )
+					{
+						debugObject("Got account system object", obj, "");
+						return obj;
+					}
+				}
+			}
+		}
+		return null;
+	}
+
 
 	Date lastModification = null;
 	Date lastCommitedModification = null;
@@ -657,7 +717,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		}
 	}
 
-	private List<Object[]> performSelect(Connection conn,
+	protected List<Object[]> performSelect(Connection conn,
 			String sentence, ExtensibleObject object, Long maxRows) throws SQLException {
 		StringBuffer b = new StringBuffer ();
 		List<Object> parameters = new LinkedList<Object>();
@@ -820,12 +880,12 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			}
 		}
 		// Next update role members
-		
-		try {
-			updateRoleMembers (role, getServer().getRoleAccounts(role.getId(), getDispatcher().getCodi()));
-		} catch (UnknownRoleException e) {
-			throw new InternalErrorException("Error updating role", e);
-		}
+				
+//		try {
+//			updateRoleMembers (role, getServer().getRoleAccounts(role.getId(), getDispatcher().getCodi()));
+//		} catch (UnknownRoleException e) {
+//			throw new InternalErrorException("Error updating role", e);
+//		}
 	}
 
 	private void updateRoleMembers(Rol role, Collection<Account> initialGrants) throws InternalErrorException {
@@ -1169,6 +1229,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	public void updateUser(String accountName, Usuari userData)
 			throws RemoteException, InternalErrorException {
 		Account acc = getServer().getAccountInfo(accountName, getDispatcher().getCodi());
+		if (acc == null)
+			return;
+		
 		ExtensibleObject soffidObject = new UserExtensibleObject(acc, userData, getServer());
 	
 
@@ -1185,15 +1248,15 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				updateObject(soffidObject, systemObject);
 				found = true;
 			}
-			// Next update role members
-			
-			updateUserRoles (accountName, null, 
-					getServer().getAccountRoles(accountName, getCodi()),
-					getServer().getAccountExplicitRoles(accountName, getCodi()));
 		}
 		if (! found)
 		{
 			updateUser(accountName, userData.getFullName());
+		} else {
+			// Next update role members
+			updateUserRoles (accountName, null, 
+					getServer().getAccountRoles(accountName, getCodi()),
+					getServer().getAccountExplicitRoles(accountName, getCodi()));
 		}
 	}
 
@@ -1341,11 +1404,12 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			InternalErrorException 
 	{
 
-		Account acc = new Account();
-		acc.setName(accountName);
-		acc.setDescription(userData.getFullName());
-		acc.setDispatcher(getCodi());
-		ExtensibleObject soffidObject = new UserExtensibleObject(acc, userData, getServer());
+		Account acc = getServer().getAccountInfo(accountName, getCodi());
+		if (acc == null)
+			return;
+		ExtensibleObject soffidObject = userData == null ?
+				new AccountExtensibleObject(acc, getServer()):
+				new UserExtensibleObject(acc, userData, getServer());
 	
 		soffidObject.put("password", getHashPassword(password));
 		soffidObject.put("mustChangePassword", mustchange);
