@@ -135,15 +135,18 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 		try{
 			for ( ExtensibleObjectMapping objMapping: objectMappings)
 			{
+				log.info("Object type: "+objMapping.getSystemObject());
 				if (objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER) ||
 						objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_GROUP) ||
 						objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_CUSTOM) ||
 						objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_AUTHORITATIVE_CHANGE))
 				{
+					log.info("Ignored");
 					for (String tag: getTags (objMapping.getProperties(), "selectAll", objMapping.getSystemObject()))
 					{
 						String filter = objMapping.getProperties().get(tag+"Filter");
 						String sentence = objMapping.getProperties().get(tag);
+						log.info("Getting data");
 						try {
 							List<Object[]> rows = performSelect(conn, sentence, emptyObject, null);
 							Object [] header = null;
