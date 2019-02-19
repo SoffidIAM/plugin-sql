@@ -32,6 +32,7 @@ import es.caib.seycon.ng.comu.SoffidObjectTrigger;
 import es.caib.seycon.ng.comu.SoffidObjectType;
 import es.caib.seycon.ng.comu.Usuari;
 import es.caib.seycon.ng.exception.InternalErrorException;
+import es.caib.seycon.ng.exception.UnknownUserException;
 import es.caib.seycon.ng.sync.agent.Agent;
 import es.caib.seycon.ng.sync.bootstrap.NullSqlObjet;
 import es.caib.seycon.ng.sync.bootstrap.QueryHelper;
@@ -107,9 +108,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	private String driver;
 	
-	static HashMap<String,JDBCPool> pools = new HashMap<String, JDBCPool>();
+	static HashMap<String,SQLJDBCPool> pools = new HashMap<String, SQLJDBCPool>();
 	
-	JDBCPool pool = null;
+	SQLJDBCPool pool = null;
 
 
 	/**
@@ -132,7 +133,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		passwordPrefix = getDispatcher().getParam4();
 		if (passwordPrefix == null)
 			hashType = "{" + hashType + "}";
-		
+		String startupSql = getDispatcher().getParam7();
 		
 		debugEnabled = "true".equals(getDispatcher().getParam5());
 
@@ -176,7 +177,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		pool = pools.get(getCodi());
 		if ( pool == null)
 		{
-			pool = new JDBCPool();
+			pool = new SQLJDBCPool();
+			pool.setStartupSql(startupSql);
 			pools.put(getCodi(), pool);
 		}
         pool.setUrl(url);
@@ -1394,17 +1396,43 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			acc.setDispatcher(getCodi());
 			acc.setStatus(AccountStatus.REMOVED);
 		}
-		ExtensibleObject soffidObject = new AccountExtensibleObject(acc, getServer());
-			
-		for ( ExtensibleObjectMapping objectMapping: objectMappings)
+		
+		if (acc.getStatus() == AccountStatus.REMOVED)
 		{
-			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
+			ExtensibleObject soffidObject = new AccountExtensibleObject(acc, getServer());
+				
+			for ( ExtensibleObjectMapping objectMapping: objectMappings)
 			{
-				ExtensibleObject sqlobject = objectTranslator.generateObject(soffidObject, objectMapping);
-				if (acc.getStatus() == AccountStatus.REMOVED)
+				if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
+				{
+					ExtensibleObject sqlobject = objectTranslator.generateObject(soffidObject, objectMapping);
 					delete(soffidObject, sqlobject, objectMapping.getProperties(), objectMapping.getSystemObject());
-				else
-					updateObject(soffidObject, sqlobject);
+				}
+			}
+		} else {
+			try {
+				Usuari user = getServer().getUserInfo(accountName, getCodi());
+				ExtensibleObject soffidObject = new UserExtensibleObject(acc, user, getServer());
+				
+				for ( ExtensibleObjectMapping objectMapping: objectMappings)
+				{
+					if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER))
+					{
+						ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
+						updateObject(soffidObject, systemObject);
+					}
+				}
+			} catch (UnknownUserException e) {
+				ExtensibleObject soffidObject = new AccountExtensibleObject(acc, getServer());
+				
+				for ( ExtensibleObjectMapping objectMapping: objectMappings)
+				{
+					if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
+					{
+						ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
+						updateObject(soffidObject, systemObject);
+					}
+				}
 			}
 		}
 	}
