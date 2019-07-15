@@ -21,7 +21,6 @@ import es.caib.seycon.ng.sync.intf.AuthoritativeChange;
 import es.caib.seycon.ng.sync.intf.AuthoritativeChangeIdentifier;
 import es.caib.seycon.ng.sync.intf.ExtensibleObject;
 import es.caib.seycon.ng.sync.intf.ExtensibleObjectMapping;
-import es.caib.seycon.ng.sync.intf.ExtensibleObjects;
 
 public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 

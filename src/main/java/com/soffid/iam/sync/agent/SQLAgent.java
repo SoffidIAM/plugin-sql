@@ -1474,10 +1474,15 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				}
 				else
 				{
+					if (! runTriggers(systemObject.getObjectType(), SoffidObjectTrigger.PRE_UPDATE, systemObject, systemObject, soffidObject))
+					{
+						return;
+					}
 					for (String s: updatePasswordTags)
 					{
 						executeSentence(properties.get(s), systemObject);
 					}
+					runTriggers(systemObject.getObjectType(), SoffidObjectTrigger.POST_UPDATE, systemObject, systemObject, soffidObject);
 				}
 			}
 		}
@@ -1595,5 +1600,10 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return triggers;
 	}
 
+	public Collection<Map<String, Object>> invoke(String verb, String command,
+			Map<String, Object> params) throws RemoteException, InternalErrorException 
+	{
+		return objectTranslator.getObjectFinder().invoke(verb, command, params);
+	}
 }
 	
