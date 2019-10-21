@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.soffid.iam.api.CustomObject;
+import com.soffid.iam.sync.bootstrap.NullSqlObjet;
 import com.soffid.iam.sync.intf.CustomObjectMgr;
 
 import es.caib.seycon.ng.comu.Grup;
@@ -46,6 +47,12 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 								 map.getProperties().get(tag+"Filter")) )
 							{
 								debugObject("Got system object", obj, "");
+								for (String key: obj.keySet())
+								{
+									Object o = obj.get(key);
+									if (o != null && (o instanceof NullSqlObjet || o instanceof es.caib.seycon.ng.sync.bootstrap.NullSqlObjet))
+										obj.put(key, null);
+								}
 								return obj;
 							}
 						}
@@ -79,6 +86,13 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 								ExtensibleObject soffidObj = objectTranslator.parseInputObject(obj, map);
 								debugObject("Translated soffid object", soffidObj, "");
 							
+								for (String key: obj.keySet())
+								{
+									Object o = obj.get(key);
+									if (o != null && (o instanceof NullSqlObjet || o instanceof es.caib.seycon.ng.sync.bootstrap.NullSqlObjet))
+										obj.put(key, null);
+								}
+
 								return soffidObj;
 							}
 						}
