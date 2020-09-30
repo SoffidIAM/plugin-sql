@@ -10,7 +10,7 @@
 	<artifactId>sql-plugin</artifactId>
 	<packaging>jar</packaging>
 	<name>SQL plugin</name>
-	<version>1.7.1-SNAPSHOT</version>
+	<version>1.7.1</version>
 	<dependencies>
 		<dependency>
 			<groupId>net.sf.jt400</groupId>
