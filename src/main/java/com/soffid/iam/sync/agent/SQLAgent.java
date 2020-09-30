@@ -628,7 +628,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 
 	Date lastModification = null;
-	Date lastCommitedModification = null;
+	static Date lastCommitedModification = null;
 	long lastChangeId = 0;
 	HashSet<Long> pendingChanges = new HashSet<Long>();
 	
