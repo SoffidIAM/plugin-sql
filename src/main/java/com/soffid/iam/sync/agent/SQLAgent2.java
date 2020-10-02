@@ -231,4 +231,110 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 			pool.returnConnection();
 		}
 	}
+
+	public Collection<AuthoritativeChange> getChanges(String lastChange)
+			throws InternalErrorException {
+		
+		LinkedList<AuthoritativeChange> changes = new LinkedList<AuthoritativeChange>();
+		ExtensibleObject emptyObject = new ExtensibleObject();
+
+		Date d = null;
+		if (lastChange != null && !lastChange.trim().isEmpty())
+			d = new Date ( Long.parseLong(lastChange));
+		lastModification = new Date();
+		emptyObject.setAttribute("LASTCHANGE", d);
+		if (d == null)
+			log.info("Loading complete database");
+		else
+			log.info("Loading changes since "+lastChange+ "="+ d.toString() );
+		
+		Connection conn;
+		try {
+			conn = pool.getConnection();
+		} catch (Exception e1) {
+			throw new InternalErrorException("Error connecting to database ", e1);
+		}
+		try{
+			for ( ExtensibleObjectMapping objMapping: objectMappings)
+			{
+				log.info("Object type: "+objMapping.getSystemObject());
+				if (objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER) ||
+						objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_GROUP) ||
+						objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_CUSTOM) ||
+						objMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_AUTHORITATIVE_CHANGE))
+				{
+					log.info("Ignored");
+					for (String tag: getTags (objMapping.getProperties(), "selectAll", objMapping.getSystemObject()))
+					{
+						String filter = objMapping.getProperties().get(tag+"Filter");
+						String sentence = objMapping.getProperties().get(tag);
+						log.info("Getting data");
+						try {
+							List<Object[]> rows = performSelect(conn, sentence, emptyObject, null);
+							Object [] header = null;
+							for (Object[] row: rows)
+							{
+								if (header == null)
+									header = row;
+								else
+								{
+									ExtensibleObject resultObject = new ExtensibleObject();
+									resultObject.setObjectType(objMapping.getSystemObject());
+									for (int i = 0; i < row.length; i ++)
+									{
+										String param = header[i].toString();
+										if (resultObject.getAttribute(param) == null)
+										{
+											resultObject.setAttribute(param, row[i]);
+										}
+									}
+									debugObject("Got authoritative change", resultObject, "");
+									if (!passFilter(filter, resultObject, null))
+										log.info ("Discarding row");
+									else
+									{
+										ExtensibleObject translated = objectTranslator.parseInputObject(resultObject, objMapping);
+										debugObject("Translated to", translated, "");
+										AuthoritativeChange ch = new ValueObjectMapper().parseAuthoritativeChange(translated);
+										if (ch != null)
+										{
+											changes.add(ch);
+										} else {
+											Usuari usuari = new ValueObjectMapper().parseUsuari(translated);
+											if (usuari != null)
+											{
+												if (debugEnabled && usuari != null)
+													log.info ("Result user: "+usuari.toString());
+												Long changeId = new Long(lastChangeId++);
+												ch = new AuthoritativeChange();
+												ch.setId(new AuthoritativeChangeIdentifier());
+												ch.getId().setInternalId(changeId);
+												ch.setUser(usuari);
+												Map<String,Object> attributes = (Map<String, Object>) translated.getAttribute("attributes");
+												ch.setAttributes(attributes);
+												changes.add(ch);
+											} else {
+												Grup gr =  new ValueObjectMapper().parseGroup(translated);
+												Long changeId = new Long(lastChangeId++);
+												ch = new AuthoritativeChange();
+												ch.setId(new AuthoritativeChangeIdentifier());
+												ch.getId().setInternalId(changeId);
+												ch.setGroup(gr);
+												changes.add(ch);
+											}
+										}
+									}
+								}
+							}
+						} catch (SQLException e) {
+							throw new InternalErrorException("Error executing sentence "+sentence, e);
+						}
+					}
+				}
+			}
+			return changes;
+		} finally {
+			pool.returnConnection();
+		}
+	}
 }
