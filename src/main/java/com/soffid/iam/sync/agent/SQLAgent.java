@@ -79,6 +79,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	private static final String DB2400_DRIVER = "db2400";
 
+	private static final String DB2_DRIVER = "db2";
+
 	private static final String MYSQL_DRIVER = "mysql";
 
 	private static final String SQLSERVER_DRIVER = "sqlserver";
@@ -86,6 +88,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	private static final String ORACLE_DRIVER = "oracle";
 
 	private static final String INFORMIX_DRIVER = "informix";
+
+	private static final String JTDS_DRIVER = "jtds";
 
 	ValueObjectMapper vom = new ValueObjectMapper();
 	
@@ -160,6 +164,10 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			driverClass = "org.postgresql.Driver";
 		else if (DB2400_DRIVER.equals(driver))
 			driverClass = "com.ibm.as400.access.AS400JDBCDriver";
+		else if (DB2_DRIVER.equals(driver))
+			driverClass = "com.ibm.db2.jcc.DB2Driver";
+		else if (JTDS_DRIVER.equals(driver))
+			driverClass = "net.sourceforge.jtds.jdbc.Driver";
 		else
 			log.info ("Unknown driver {} ",driver, null);
 

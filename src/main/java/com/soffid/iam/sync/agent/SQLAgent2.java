@@ -50,7 +50,7 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 								for (String key: obj.keySet())
 								{
 									Object o = obj.get(key);
-									if (o != null && (o instanceof NullSqlObjet || o instanceof es.caib.seycon.ng.sync.bootstrap.NullSqlObjet))
+									if (o != null && o.getClass().getName().endsWith("NullSqlObjet"))
 										obj.put(key, null);
 								}
 								return obj;
@@ -89,7 +89,7 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 								for (String key: obj.keySet())
 								{
 									Object o = obj.get(key);
-									if (o != null && (o instanceof NullSqlObjet || o instanceof es.caib.seycon.ng.sync.bootstrap.NullSqlObjet))
+									if (o != null && o.getClass().getName().endsWith("NullSqlObjet"))
 										obj.put(key, null);
 								}
 
