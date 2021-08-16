@@ -42,6 +42,12 @@
 				<listitem value="db2400">
 					<listcell label="DB2/400"/>
 				</listitem>
+				<listitem value="db2">
+					<listcell label="DB2 Universal"/>
+				</listitem>
+				<listitem value="jtds">
+					<listcell label="Sybase"/>
+				</listitem>
 			</listbox>
 		</row>
 		<row>
