@@ -6,7 +6,7 @@
 	<name>SQL plugin</name>
 	<version>${pom.version}</version>
 	<agent>
-		<name>SQL agent</name>
+		<name>SQL Agent</name>
 		<javaClass>com.soffid.iam.sync.agent.SQLAgent</javaClass>
 		<javaClassV2>com.soffid.iam.sync.agent.SQLAgent2</javaClassV2>
 		<userInterface>CustomSQLAgent.zul</userInterface>

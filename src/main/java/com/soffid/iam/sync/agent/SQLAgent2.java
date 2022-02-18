@@ -10,18 +10,17 @@ import java.util.List;
 import java.util.Map;
 
 import com.soffid.iam.api.CustomObject;
-import com.soffid.iam.sync.bootstrap.NullSqlObjet;
 import com.soffid.iam.sync.intf.CustomObjectMgr;
 
-import es.caib.seycon.ng.comu.Grup;
-import es.caib.seycon.ng.comu.SoffidObjectType;
-import es.caib.seycon.ng.comu.Usuari;
+import com.soffid.iam.api.Group;
+import com.soffid.iam.api.SoffidObjectType;
+import com.soffid.iam.api.User;
 import es.caib.seycon.ng.exception.InternalErrorException;
-import es.caib.seycon.ng.sync.engine.extobj.ValueObjectMapper;
-import es.caib.seycon.ng.sync.intf.AuthoritativeChange;
-import es.caib.seycon.ng.sync.intf.AuthoritativeChangeIdentifier;
-import es.caib.seycon.ng.sync.intf.ExtensibleObject;
-import es.caib.seycon.ng.sync.intf.ExtensibleObjectMapping;
+import com.soffid.iam.sync.engine.extobj.ValueObjectMapper;
+import com.soffid.iam.sync.intf.AuthoritativeChange;
+import com.soffid.iam.sync.intf.AuthoritativeChangeIdentifier;
+import com.soffid.iam.sync.intf.ExtensibleObject;
+import com.soffid.iam.sync.intf.ExtensibleObjectMapping;
 
 public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 
@@ -30,7 +29,7 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 	}
 
 	@Override
-	public ExtensibleObject getNativeObject(es.caib.seycon.ng.comu.SoffidObjectType type, String object1, String object2)
+	public ExtensibleObject getNativeObject(com.soffid.iam.api.SoffidObjectType type, String object1, String object2)
 			throws RemoteException, InternalErrorException {
 		try {
 			ExtensibleObject sourceObject = getExtensibleObject(type, object1, object2);
@@ -66,7 +65,7 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 	}
 
 	@Override
-	public ExtensibleObject getSoffidObject(es.caib.seycon.ng.comu.SoffidObjectType type, String object1, String object2)
+	public ExtensibleObject getSoffidObject(com.soffid.iam.api.SoffidObjectType type, String object1, String object2)
 			throws RemoteException, InternalErrorException {
 		try {
 			ExtensibleObject sourceObject = getExtensibleObject(type, object1, object2);
@@ -106,19 +105,19 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 	}
 
 	public void updateCustomObject(CustomObject obj) throws RemoteException, InternalErrorException {
-		ExtensibleObject soffidObject = new es.caib.seycon.ng.sync.engine.extobj.CustomExtensibleObject(obj, getServer());
+		ExtensibleObject soffidObject = new com.soffid.iam.sync.engine.extobj.CustomExtensibleObject(obj, getServer());
 		for ( ExtensibleObjectMapping objectMapping: objectMappings)
 		{
 			if (objectMapping.appliesToSoffidObject(soffidObject))
 			{
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-				updateObject(soffidObject, systemObject);
+				updateObject(null, soffidObject, systemObject);
 			}
 		}
 	}
 
 	public void removeCustomObject(CustomObject obj) throws RemoteException, InternalErrorException {
-		ExtensibleObject soffidObject = new es.caib.seycon.ng.sync.engine.extobj.CustomExtensibleObject(obj, getServer());
+		ExtensibleObject soffidObject = new com.soffid.iam.sync.engine.extobj.CustomExtensibleObject(obj, getServer());
 		for ( ExtensibleObjectMapping objectMapping: objectMappings)
 		{
 			if (objectMapping.appliesToSoffidObject(soffidObject))
@@ -191,7 +190,7 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 										{
 											changes.add(ch);
 										} else {
-											Usuari usuari = new ValueObjectMapper().parseUsuari(translated);
+											User usuari = new ValueObjectMapper().parseUser(translated);
 											if (usuari != null)
 											{
 												if (debugEnabled && usuari != null)
@@ -206,7 +205,7 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 												changes.add(ch);
 												changeIds.add(changeId);
 											} else {
-												Grup gr =  new ValueObjectMapper().parseGroup(translated);
+												Group gr =  new ValueObjectMapper().parseGroup(translated);
 												Long changeId = new Long(lastChangeId++);
 												ch = new AuthoritativeChange();
 												ch.setId(new AuthoritativeChangeIdentifier());
@@ -300,7 +299,7 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 										{
 											changes.add(ch);
 										} else {
-											Usuari usuari = new ValueObjectMapper().parseUsuari(translated);
+											User usuari = new ValueObjectMapper().parseUser(translated);
 											if (usuari != null)
 											{
 												if (debugEnabled && usuari != null)
@@ -314,7 +313,7 @@ public class SQLAgent2 extends SQLAgent implements CustomObjectMgr {
 												ch.setAttributes(attributes);
 												changes.add(ch);
 											} else {
-												Grup gr =  new ValueObjectMapper().parseGroup(translated);
+												Group gr =  new ValueObjectMapper().parseGroup(translated);
 												Long changeId = new Long(lastChangeId++);
 												ch = new AuthoritativeChange();
 												ch.setId(new AuthoritativeChangeIdentifier());

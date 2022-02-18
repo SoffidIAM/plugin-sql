@@ -48,6 +48,9 @@
 				<listitem value="jtds">
 					<listcell label="Sybase"/>
 				</listitem>
+				<listitem value="odbc">
+					<listcell label="ODBC"/>
+				</listitem>
 			</listbox>
 		</row>
 		<row>
@@ -86,6 +89,17 @@
 				</listitem>
 				<listitem value="true">
 					<listcell label="Yes"/>
+				</listitem>
+			</listbox>
+		</row>
+		<row>
+			<input_etiqueta value="Synchronization method" />
+			<listbox bind="@param8" mold="select"  disabled="{!canModifyAgent}" width="300px">
+				<listitem value="false">
+					<listcell label="Full synchronization"/>
+				</listitem>
+				<listitem value="true">
+					<listcell label="Incremental synchronization"/>
 				</listitem>
 			</listbox>
 		</row>

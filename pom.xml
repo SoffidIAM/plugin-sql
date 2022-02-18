@@ -20,7 +20,7 @@
 		<dependency>
 			<groupId>com.soffid.iam.sync</groupId>
 			<artifactId>syncserver</artifactId>
-			<version>2.3.3</version>
+			<version>3.2.0</version>
 		</dependency>
 		<dependency>
 			<groupId>mysql</groupId>
@@ -55,6 +55,12 @@
 			<artifactId>postgresql</artifactId>
 			<version>9.3-1102-jdbc41</version>
 		</dependency>
+		<dependency>
+			<groupId>org.json</groupId>
+			<artifactId>json</artifactId>
+			<version>20131018</version>
+			<scope>provided</scope>
+		</dependency>
 	</dependencies>
 	<scm>
 		<connection>scm:git:ssh://git@stash.dev.lab:7999/iam2/plugin-sql.git</connection>
@@ -68,6 +74,14 @@
 	</licenses>
 	<build>
 		<plugins>
+	        <plugin>
+	          <groupId>org.apache.maven.plugins</groupId>
+	          <artifactId>maven-compiler-plugin</artifactId>
+	          <configuration>
+	            <source>1.8</source>
+	            <target>1.8</target>
+	          </configuration>
+	        </plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-shade-plugin</artifactId>

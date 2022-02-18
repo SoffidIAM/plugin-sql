@@ -1,5 +1,8 @@
 package com.soffid.iam.sync.agent;
 
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.rmi.RemoteException;
 import java.security.MessageDigest;
@@ -20,42 +23,50 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-import com.soffid.iam.api.AccountStatus;
+import org.json.JSONException;
 
-import oracle.jdbc.driver.OracleTypes;
-import es.caib.seycon.ng.comu.Account;
-import es.caib.seycon.ng.comu.ObjectMappingTrigger;
-import es.caib.seycon.ng.comu.Password;
-import es.caib.seycon.ng.comu.Rol;
-import es.caib.seycon.ng.comu.RolGrant;
+import com.soffid.iam.api.AccountStatus;
+import com.soffid.iam.api.DataType;
+import com.soffid.iam.api.HostService;
+import com.soffid.iam.api.RoleGrant;
+
+import com.soffid.iam.api.Account;
+import com.soffid.iam.api.ObjectMappingTrigger;
+import com.soffid.iam.api.Password;
+import com.soffid.iam.api.Role;
+import com.soffid.iam.api.RoleGrant;
+import com.soffid.iam.api.SoffidObjectType;
+import com.soffid.iam.api.User;
+import com.soffid.iam.remote.RemoteServiceLocator;
+import com.soffid.iam.service.AdditionalDataService;
+
 import es.caib.seycon.ng.comu.SoffidObjectTrigger;
-import es.caib.seycon.ng.comu.SoffidObjectType;
-import es.caib.seycon.ng.comu.Usuari;
+import es.caib.seycon.ng.comu.TypeEnumeration;
+import es.caib.seycon.ng.exception.AccountAlreadyExistsException;
 import es.caib.seycon.ng.exception.InternalErrorException;
 import es.caib.seycon.ng.exception.UnknownUserException;
-import es.caib.seycon.ng.sync.agent.Agent;
 import es.caib.seycon.ng.sync.bootstrap.NullSqlObjet;
 import es.caib.seycon.ng.sync.bootstrap.QueryHelper;
-import es.caib.seycon.ng.sync.engine.extobj.AccountExtensibleObject;
-import es.caib.seycon.ng.sync.engine.extobj.ExtensibleObjectFinder;
-import es.caib.seycon.ng.sync.engine.extobj.GrantExtensibleObject;
-import es.caib.seycon.ng.sync.engine.extobj.ObjectTranslator;
-import es.caib.seycon.ng.sync.engine.extobj.RoleExtensibleObject;
-import es.caib.seycon.ng.sync.engine.extobj.UserExtensibleObject;
-import es.caib.seycon.ng.sync.engine.extobj.ValueObjectMapper;
-import es.caib.seycon.ng.sync.engine.pool.JDBCPool;
-import es.caib.seycon.ng.sync.intf.AuthoritativeChange;
-import es.caib.seycon.ng.sync.intf.AuthoritativeChangeIdentifier;
-import es.caib.seycon.ng.sync.intf.AuthoritativeIdentitySource;
-import es.caib.seycon.ng.sync.intf.AuthoritativeIdentitySource2;
-import es.caib.seycon.ng.sync.intf.ExtensibleObject;
-import es.caib.seycon.ng.sync.intf.ExtensibleObjectMapping;
-import es.caib.seycon.ng.sync.intf.ExtensibleObjectMgr;
-import es.caib.seycon.ng.sync.intf.ExtensibleObjects;
-import es.caib.seycon.ng.sync.intf.ReconcileMgr2;
-import es.caib.seycon.ng.sync.intf.RoleMgr;
-import es.caib.seycon.ng.sync.intf.UserMgr;
+
+import com.soffid.iam.sync.agent.Agent;
+import com.soffid.iam.sync.engine.extobj.AccountExtensibleObject;
+import com.soffid.iam.sync.engine.extobj.ExtensibleObjectFinder;
+import com.soffid.iam.sync.engine.extobj.GrantExtensibleObject;
+import com.soffid.iam.sync.engine.extobj.ObjectTranslator;
+import com.soffid.iam.sync.engine.extobj.RoleExtensibleObject;
+import com.soffid.iam.sync.engine.extobj.UserExtensibleObject;
+import com.soffid.iam.sync.engine.extobj.ValueObjectMapper;
+import com.soffid.iam.sync.intf.AuthoritativeChange;
+import com.soffid.iam.sync.intf.AuthoritativeChangeIdentifier;
+import com.soffid.iam.sync.intf.AuthoritativeIdentitySource2;
+import com.soffid.iam.sync.intf.ExtensibleObject;
+import com.soffid.iam.sync.intf.ExtensibleObjectMapping;
+import com.soffid.iam.sync.intf.ExtensibleObjectMgr;
+import com.soffid.iam.sync.intf.ReconcileMgr2;
+import com.soffid.iam.sync.intf.RoleMgr;
+import com.soffid.iam.sync.intf.UserMgr;
 import es.caib.seycon.util.Base64;
+import oracle.jdbc.driver.OracleTypes;
 
 /**
  * Agent to manage relational databases
@@ -91,6 +102,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	private static final String JTDS_DRIVER = "jtds";
 
+	private static final String ODBC_DRIVER = "odbc";
+
 	ValueObjectMapper vom = new ValueObjectMapper();
 	
 	ObjectTranslator objectTranslator = null;
@@ -117,6 +130,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	
 	SQLJDBCPool pool = null;
 
+	private boolean deltaChanges;
+
 
 	/**
 	 * Constructor
@@ -128,19 +143,21 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	@Override
 	public void init() throws InternalErrorException {
-		log.info("Starting SQL Agent agent on {}", getDispatcher().getCodi(),
+		log.info("Starting SQL Agent agent on {}", getSystem().getName(),
 				null);
-		dbUser = getDispatcher().getParam0();
-		dbPassword = Password.decode(getDispatcher().getParam1());
-		url = getDispatcher().getParam2();
+		dbUser = getSystem().getParam0();
+		dbPassword = getSystem().getParam1() == null ? new Password(""):
+			Password.decode(getSystem().getParam1());
+		url = getSystem().getParam2();
 		
-		hashType = getDispatcher().getParam3();
-		passwordPrefix = getDispatcher().getParam4();
+		hashType = getSystem().getParam3();
+		passwordPrefix = getSystem().getParam4();
 		if (passwordPrefix == null)
 			hashType = "{" + hashType + "}";
-		String startupSql = getDispatcher().getParam7();
+		String startupSql = getSystem().getParam7();
+		deltaChanges = "true".equals(getSystem().getParam8());
 		
-		debugEnabled = "true".equals(getDispatcher().getParam5());
+		debugEnabled = "true".equals(getSystem().getParam5());
 
 		try {
 			if (hashType != null && hashType.length() > 0)
@@ -150,9 +167,11 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					"Unable to use SHA encryption algorithm ", e);
 		}
 
-		driver = getDispatcher().getParam6();
+		driver = getSystem().getParam6();
 		String driverClass = null;
-		if (INFORMIX_DRIVER.equals(driver))
+		if (ODBC_DRIVER.equals(driver))
+			driverClass = "sun.jdbc.odbc.JdbcOdbcDriver";
+		else if (INFORMIX_DRIVER.equals(driver))
 			driverClass = "com.informix.jdbc.IfxDriver";
 		else if (ORACLE_DRIVER.equals(driver))
 			driverClass = "oracle.jdbc.driver.OracleDriver";
@@ -183,12 +202,12 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
         } catch (Exception e) {
             log.info("Error registering driver: {}", e, null);
         }
-		pool = pools.get(getCodi());
+		pool = pools.get(getAgentName());
 		if ( pool == null)
 		{
 			pool = new SQLJDBCPool();
 			pool.setStartupSql(startupSql);
-			pools.put(getCodi(), pool);
+			pools.put(getAgentName(), pool);
 		}
         pool.setUrl(url);
         pool.setPassword(dbPassword.getPassword());
@@ -198,6 +217,26 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			pool.returnConnection();
 		} catch (Exception e) {
 			throw new InternalErrorException("Error connecting database", e);
+		}
+		
+		if (deltaChanges) {
+			try {
+				final AdditionalDataService additionalDataService = new RemoteServiceLocator().getAdditionalDataService();
+				if (additionalDataService.findSystemDataType(getAgentName(), DeltaChangesManager.STATUS_ATTRIBUTE) == null) {
+					DataType dt = new DataType();
+					dt.setCode(DeltaChangesManager.STATUS_ATTRIBUTE);
+					dt.setLabel("Previous state data");
+					dt.setBuiltin(false);
+					dt.setVisibilityExpression("false");
+					dt.setType(TypeEnumeration.BINARY_TYPE);
+					dt.setUnique(false);
+					dt.setRequired(false);
+					dt.setSystemName(getAgentName());
+					additionalDataService.create(dt);
+				}
+			} catch (Exception e) {
+				throw new InternalErrorException("Error configuring metadata", e);
+			}
 		}
 	}
 
@@ -245,17 +284,41 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return matches;
 	}
 	
-	protected void updateObject(ExtensibleObject src, ExtensibleObject obj)
+	protected void updateObject(Account acc, ExtensibleObject src, ExtensibleObject obj)
 			throws InternalErrorException {
 		Map<String, String> properties = objectTranslator.getObjectProperties(obj);
+		ExtensibleObject obj2 = obj;
 		if (exists (obj, properties, obj.getObjectType()))
 		{
+			log.info("Exists");
 			ExtensibleObject old = select(obj, properties, obj.getObjectType());
+			if (acc != null && deltaChanges)
+				obj = new DeltaChangesManager(log).merge(acc, old, obj, getServer(), deltaChanges);
 			update (src, old, obj, properties, obj.getObjectType());
+			log.info("End update");
 		}
 		else
 		{
+			log.info("Insert");
 			insert (src, obj, properties, obj.getObjectType());
+			log.info("End insert");
+		}
+		if (acc != null && deltaChanges) {
+			if (new DeltaChangesManager(log).updateDeltaAttribute(acc, obj2))
+			{
+				try {
+					Method m = getServer().getClass().getMethod("reconcileAccount", Account.class, List.class);
+					getServer().reconcileAccount(acc, null);
+				} catch (NoSuchMethodException e) {
+					try {
+						new RemoteServiceLocator().getAccountService().updateAccount2(acc);
+					} catch (AccountAlreadyExistsException e1) {
+						throw new InternalErrorException("Error updating account snapshot", e1);
+					} catch (IOException e1) {
+						throw new InternalErrorException("Error updating account snapshot", e1);
+					}
+				}
+			}
 		}
 	}
 
@@ -333,7 +396,12 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		}
 		try 
 		{
-			for (String tag: getTags (properties, "check", objectType))
+			LinkedList<String> tags = getTags (properties, "select", objectType);
+			if (tags.isEmpty())
+				tags = getTags (properties, "selectByAccountName", objectType);
+			if (tags.isEmpty())
+				tags = getTags (properties, "check", objectType);
+			for (String tag: tags)
 			{
 				String sentence = properties.get(tag);
 				String filter = properties.get(tag+"Filter");
@@ -583,7 +651,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	public void configureMappings(Collection<ExtensibleObjectMapping> objects) throws RemoteException,
 			InternalErrorException {
 		this.objectMappings  = objects;
-		objectTranslator = new ObjectTranslator(getDispatcher(), getServer(), objectMappings);
+		objectTranslator = new ObjectTranslator(getSystem(), getServer(), objectMappings);
 		objectTranslator.setObjectFinder(new ExtensibleObjectFinder() {
 			
 			public ExtensibleObject find(ExtensibleObject pattern) throws Exception {
@@ -698,7 +766,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 										{
 											changes.add(ch);
 										} else {
-											Usuari usuari = new ValueObjectMapper().parseUsuari(translated);
+											User usuari = new ValueObjectMapper().parseUser(translated);
 											if (usuari != null)
 											{
 												if (debugEnabled && usuari != null)
@@ -876,9 +944,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			lastCommitedModification = lastModification;
 	}
 
-	public void updateRole(Rol role) throws RemoteException,
+	public void updateRole(Role role) throws RemoteException,
 			InternalErrorException {
-		if (!role.getBaseDeDades().equals(getDispatcher().getCodi()))
+		if (!role.getSystem().equals(getSystem().getName()))
 			return;
 		
 		ExtensibleObject soffidObject = new RoleExtensibleObject(role, getServer());
@@ -889,86 +957,11 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ROLE))
 			{
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-				updateObject(soffidObject, systemObject);
+				updateObject(null, soffidObject, systemObject);
 			}
 		}
 		// Next update role members
 				
-//		try {
-//			updateRoleMembers (role, getServer().getRoleAccounts(role.getId(), getDispatcher().getCodi()));
-//		} catch (UnknownRoleException e) {
-//			throw new InternalErrorException("Error updating role", e);
-//		}
-	}
-
-	private void updateRoleMembers(Rol role, Collection<Account> initialGrants) throws InternalErrorException {
-		RolGrant grant = new RolGrant();
-		grant.setRolName(role.getNom());
-		grant.setDispatcher(role.getBaseDeDades());
-		grant.setOwnerDispatcher(role.getBaseDeDades());
-		
-		GrantExtensibleObject sample = new GrantExtensibleObject(grant, getServer());
-		ValueObjectMapper vom = new ValueObjectMapper();
-		
-		// For each mapping
-		for ( ExtensibleObjectMapping objectMapping: objectMappings)
-		{
-			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_GRANTED_ROLE) ||
-					objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ALL_GRANTED_ROLES))
-			{
-				// First get existing roles
-				LinkedList<ExtensibleObject> existingRoles = new LinkedList<ExtensibleObject>();
-				boolean foundSelect = false;
-				for (String tag: getTags(objectMapping.getProperties(), "selectByRole", objectMapping.getSystemObject()))
-				{
-					existingRoles.addAll ( selectSystemObjects (sample, objectMapping, 
-							objectMapping.getProperties().get(tag),
-							 objectMapping.getProperties().get(tag+"Filter")) );
-					foundSelect = true;
-				}
-				if (foundSelect)
-				{
-					// Now get roles to have
-					Collection<Account> grants = new LinkedList<Account> (initialGrants);
-					// Now add non existing roles
-					for (Iterator<Account> accountIterator = grants.iterator(); accountIterator.hasNext(); )
-					{
-						Account account = accountIterator.next();
-						
-						// Check if this account is already granted
-						boolean found = false;
-						for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); ! found && objectIterator.hasNext();)
-						{
-							ExtensibleObject object = objectIterator.next ();
-							String accountName = vom.toSingleString(objectTranslator.parseInputAttribute("ownerAccount", object, objectMapping));
-							if (accountName != null && accountName.equals (account.getName()))
-							{
-								objectIterator.remove();
-								found = true;
-							}
-						}
-						if (! found)
-						{
-							RolGrant rg = new RolGrant();
-							rg.setOwnerAccountName(account.getName());
-							rg.setOwnerDispatcher(account.getDispatcher());
-							rg.setRolName(role.getNom());
-							rg.setDispatcher(role.getBaseDeDades());
-							GrantExtensibleObject src = new GrantExtensibleObject(rg, getServer());
-							ExtensibleObject object = objectTranslator.generateObject( src, objectMapping);
-							updateObject(src, object);
-						}
-					}
-					// Now remove unneeded grants
-					for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); objectIterator.hasNext();)
-					{
-						ExtensibleObject object = objectIterator.next ();
-						delete(null, object, objectMapping.getProperties(), objectMapping.getSystemObject());
-					}
-				}
-			}
-		}
-		
 	}
 
 	protected Collection<? extends ExtensibleObject> selectSystemObjects(
@@ -1027,9 +1020,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	public void removeRole(String rolName, String dispatcher)
 			throws RemoteException, InternalErrorException {
-		Rol role  = new Rol();
-		role.setNom(rolName);
-		role.setBaseDeDades(dispatcher);
+		Role role  = new Role();
+		role.setName(rolName);
+		role.setSystem(dispatcher);
 		ExtensibleObject soffidObject = new RoleExtensibleObject(role, getServer());
 
 		// First update role
@@ -1041,9 +1034,6 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				delete(soffidObject, systemObject, objectMapping.getProperties(), objectMapping.getSystemObject());
 			}
 		}
-		// Next remove role members
-		Collection<Account> emptyList = Collections.emptyList();
-		updateRoleMembers (role, emptyList);
 	}
 
 	public List<String> getAccountsList() throws RemoteException,
@@ -1081,7 +1071,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		ValueObjectMapper vom = new ValueObjectMapper();
 		Account acc = new Account();
 		acc.setName(userAccount);
-		acc.setDispatcher(getCodi());
+		acc.setSystem(getAgentName());
 		ExtensibleObject sample = new AccountExtensibleObject(acc, getServer());
 		// For each mapping
 		for ( ExtensibleObjectMapping objectMapping: objectMappings)
@@ -1089,7 +1079,10 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT) )
 			{
 				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, objectMapping);
-				for (String tag: getTags(objectMapping.getProperties(), "selectByAccountName", objectMapping.getSystemObject()))
+				LinkedList<String> tags = getTags (objectMapping.getProperties(), "select", objectMapping.getSystemObject());
+				if (tags.isEmpty())
+					tags = getTags (objectMapping.getProperties(), "selectByAccountName", objectMapping.getSystemObject());
+				for (String tag: tags)
 				{
 					for ( ExtensibleObject obj : selectSystemObjects (translatedSample, objectMapping, 
 							objectMapping.getProperties().get(tag),
@@ -1102,6 +1095,15 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 						if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
 						{
 							Account acc2 = vom.parseAccount(soffidObj);
+							if (deltaChanges && acc2 != null) {
+								try {
+									new DeltaChangesManager(log).updateDeltaAttribute(acc2, getAccountGrants(userAccount));
+								} catch (InternalErrorException e) {
+									throw e;
+								} catch (Exception e) {
+									throw new InternalErrorException("Error generating current status attribute", e);
+								}
+							}
 							if (debugEnabled)
 							{
 								log.info("Resulting account: "+acc2.toString());
@@ -1110,16 +1112,24 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 						}
 						else
 						{
-							Usuari u = vom.parseUsuari(soffidObj);
+							User u = vom.parseUser(soffidObj);
 							Account acc2 = vom.parseAccount(soffidObj);
-							acc2.setDispatcher(getCodi());
+							acc2.setSystem(getAgentName());
 							if (acc2.getName() == null)
-								acc2.setName(u.getCodi());
+								acc2.setName(u.getUserName());
 							if (acc2.getDescription() == null)
 								acc2.setDescription(u.getFullName());
-							if (acc2.getDescription() == null)
-								acc2.setDescription(u.getNom()+" "+u.getPrimerLlinatge());
-							log.info("Resulting account: "+acc2.toString());
+							if (deltaChanges) {
+								try {
+									new DeltaChangesManager(log).updateDeltaAttribute(acc2, getAccountGrants(userAccount));
+								} catch (InternalErrorException e) {
+									throw e;
+								} catch (Exception e) {
+									throw new InternalErrorException("Error generating current status attribute", e);
+								}
+							}
+							if (debugEnabled)
+								log.info("Resulting account: "+acc2.toString());
 							return acc2;
 						}
 					}
@@ -1159,12 +1169,12 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return roleNames;
 	}
 
-	public Rol getRoleFullInfo(String roleName) throws RemoteException,
+	public Role getRoleFullInfo(String roleName) throws RemoteException,
 			InternalErrorException {
 		ValueObjectMapper vom = new ValueObjectMapper();
-		Rol r = new Rol();
-		r.setNom(roleName);
-		r.setBaseDeDades(getCodi());
+		Role r = new Role();
+		r.setName(roleName);
+		r.setSystem(getAgentName());
 		ExtensibleObject sample = new RoleExtensibleObject(r, getServer());
 		// For each mapping
 		for ( ExtensibleObjectMapping objectMapping: objectMappings)
@@ -1187,7 +1197,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 							debugObject("Got system role object", obj, "");
 							ExtensibleObject soffidObj = objectTranslator.parseInputObject(obj, objectMapping);
 							debugObject("Translated soffid role object", soffidObj, "");
-							return vom.parseRol(soffidObj);
+							return vom.parseRole(soffidObj);
 						}
 					}
 				}
@@ -1197,16 +1207,16 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return null;
 	}
 
-	public List<RolGrant> getAccountGrants(String userAccount)
+	public List<RoleGrant> getAccountGrants(String userAccount)
 			throws RemoteException, InternalErrorException {
-		RolGrant grant = new RolGrant();
+		RoleGrant grant = new RoleGrant();
 		grant.setOwnerAccountName(userAccount);
-		grant.setDispatcher(getCodi());
-		grant.setOwnerDispatcher(getCodi());
+		grant.setSystem(getAgentName());
+		grant.setOwnerSystem(getAgentName());
 		
 		GrantExtensibleObject sample = new GrantExtensibleObject(grant, getServer());
 		ValueObjectMapper vom = new ValueObjectMapper();
-		List<RolGrant> result = new LinkedList<RolGrant>();
+		List<RoleGrant> result = new LinkedList<RoleGrant>();
 		
 		// For each mapping
 		for ( ExtensibleObjectMapping objectMapping: objectMappings)
@@ -1240,9 +1250,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return result;
 	}
 
-	public void updateUser(String accountName, Usuari userData)
+	public void updateUser(Account acc, User userData)
 			throws RemoteException, InternalErrorException {
-		Account acc = getServer().getAccountInfo(accountName, getDispatcher().getCodi());
 		if (acc == null)
 			return;
 		
@@ -1250,7 +1259,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	
 
 		String password;
-		password = getAccountPassword(accountName);
+		password = getAccountPassword(acc.getName());
 		soffidObject.put("password", password);
 		// First update role
 		boolean found = false;
@@ -1258,46 +1267,55 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		{
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER))
 			{
+				log.info("Updating user");
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-				updateObject(soffidObject, systemObject);
+				debugObject("Updating user", systemObject, "  ");
+				updateObject(acc, soffidObject, systemObject);
+				log.info("Done");
 				found = true;
 			}
 		}
 		if (! found)
 		{
-			updateUser(accountName, userData.getFullName());
+			updateUser(acc);
 		} else {
-			// Next update role members
-			updateUserRoles (accountName, null, 
-					getServer().getAccountRoles(accountName, getCodi()),
-					getServer().getAccountExplicitRoles(accountName, getCodi()));
+			try {
+				// Next update role members
+				updateUserRoles (acc, null, 
+						getServer().getAccountRoles(acc.getName(), getAgentName()),
+						getServer().getAccountExplicitRoles(acc.getName(), getAgentName()));
+			} catch (InternalErrorException e) {
+				throw e;
+			} catch (Exception e) {
+				throw new InternalErrorException("Error updating object", e);
+			}
 		}
 	}
 
 	private String getAccountPassword(String accountName)
 			throws InternalErrorException {
 		String password;
-		Password p = getServer().getAccountPassword(accountName, getCodi());
+		Password p = getServer().getAccountPassword(accountName, getAgentName());
 		if ( p == null)
 		{
-			p = getServer().generateFakePassword(accountName, getCodi());
+			p = getServer().generateFakePassword(accountName, getAgentName());
 		}
 		password = getHashPassword(p);
 		return password;
 	}
 	
-	private void updateUserRoles(String accountName, Usuari userData, 
-			Collection<RolGrant> allGrants, 
-			Collection<RolGrant> explicitGrants) throws InternalErrorException {
-		RolGrant grant = new RolGrant();
-		grant.setOwnerAccountName(accountName);
-		grant.setDispatcher(getCodi());
-		grant.setOwnerDispatcher(getCodi());
+	private void updateUserRoles(Account account, User userData, 
+			Collection<RoleGrant> allGrants, 
+			Collection<RoleGrant> explicitGrants) throws Exception {
+		RoleGrant grant = new RoleGrant();
+		grant.setOwnerAccountName(account.getName());
+		grant.setSystem(getAgentName());
+		grant.setOwnerSystem(getAgentName());
 		
 		ValueObjectMapper vom = new ValueObjectMapper();
 		
 		// For each mapping
-		for ( ExtensibleObjectMapping objectMapping: objectMappings)
+		for ( final ExtensibleObjectMapping objectMapping: objectMappings)
 		{
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_GRANTED_ROLE) ||
 					objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_GRANT) ||
@@ -1305,77 +1323,61 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			{
 				ExtensibleObject sample = objectTranslator.generateObject( new GrantExtensibleObject(grant, getServer()), objectMapping);
 				// First get existing roles
-				LinkedList<ExtensibleObject> existingRoles = new LinkedList<ExtensibleObject>();
 				boolean foundSelect = false;
+				final LinkedList<RoleGrant> existingRoles = new LinkedList<>();
+				final LinkedList<ExtensibleObject> existingObjects = new LinkedList<>();
 				for (String tag: getTags(objectMapping.getProperties(), "selectByAccount", objectMapping.getSystemObject()))
 				{
-					existingRoles.addAll ( selectSystemObjects (sample, objectMapping, 
+					for (ExtensibleObject o: selectSystemObjects (sample, objectMapping, 
 							objectMapping.getProperties().get(tag),
-							 objectMapping.getProperties().get(tag+"Filter")) );
+							 objectMapping.getProperties().get(tag+"Filter")) ) {
+						existingObjects.add(o);
+						ExtensibleObject soffidObject = objectTranslator.parseInputObject(o, objectMapping);
+						final RoleGrant existingGrant = new com.soffid.iam.sync.engine.extobj.ValueObjectMapper().parseGrant(soffidObject);
+						if (existingGrant.getRoleName() == null) {
+							throw new Exception("Cannot parse row of type "+objectMapping.getSystemObject());
+						}
+						existingRoles.add( existingGrant );		 
+					}
 					foundSelect = true;
 				}
 				if (foundSelect)
 				{
 					// Now get roles to have
-					Collection<RolGrant> grants = objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ALL_GRANTED_ROLES)?
-							new LinkedList<RolGrant> (allGrants) :
-								new LinkedList<RolGrant> (explicitGrants);
-					// Now add non existing roles
-					for (Iterator<RolGrant> grantIterator = grants.iterator(); grantIterator.hasNext(); )
-					{
-						RolGrant newGrant = grantIterator.next();
-						
-						if (debugEnabled)
-							log.info ("Testing rol grant "+newGrant);
-						
-						// Check if this account is already granted
-						boolean found = false;
-						for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); ! found && objectIterator.hasNext();)
-						{
-							ExtensibleObject object = objectIterator.next ();
-							String roleName = vom.toSingleString(objectTranslator.parseInputAttribute("grantedRole", object, objectMapping));
-							if (roleName != null && roleName.equals (newGrant.getRolName()))
-							{
-								String domainValue = vom.toSingleString(objectTranslator.parseInputAttribute("domainValue", object, objectMapping));
-								if (domainValue == null && newGrant.getDomainValue() == null ||
-										newGrant.getDomainValue() != null && newGrant.getDomainValue().equals(domainValue))
-								{
-									objectIterator.remove();
-									if (debugEnabled)
-										debugObject("Found rol grant "+newGrant+": ", object, "");
-									found = true;
-								}
+					List<RoleGrant> grants = objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ALL_GRANTED_ROLES)?
+							new LinkedList<RoleGrant> (allGrants) :
+								new LinkedList<RoleGrant> (explicitGrants);
+					new DeltaChangesManager(log).apply(account, existingRoles, grants, getServer(), deltaChanges, new RoleGrantDeltaChangesAction() {
+						@Override
+						public void remove(RoleGrant currentGrant) throws Exception {
+							int pos = existingRoles.indexOf(currentGrant);
+							if (pos >= 0) {
+								GrantExtensibleObject sourceObject = new GrantExtensibleObject(currentGrant, getServer());
+								ExtensibleObject object = existingObjects.get(pos);
+								debugObject("Role to revoke: ", object, "");
+								delete(null, object, objectMapping.getProperties(), objectMapping.getSystemObject());
 							}
 						}
-						if (! found)
-						{
-							newGrant.setOwnerAccountName(accountName);
-							newGrant.setOwnerDispatcher(getCodi());
+						
+						@Override
+						public void add(RoleGrant newGrant) throws Exception {
 							GrantExtensibleObject sourceObject = new GrantExtensibleObject(newGrant, getServer());
 							ExtensibleObject object = objectTranslator.generateObject( sourceObject, objectMapping);
 							debugObject("Role to grant: ", object, "");
-							updateObject(sourceObject, object);
+							updateObject(null, sourceObject, object);
 						}
-					}
-					// Now remove unneeded grants
-					for (Iterator <ExtensibleObject> objectIterator = existingRoles.iterator(); objectIterator.hasNext();)
-					{
-						ExtensibleObject object = objectIterator.next ();
-						debugObject("Role to revoke: ", object, "");
-						delete(null, object, objectMapping.getProperties(), objectMapping.getSystemObject());
-					}
+					});
 				}
 			}
 		}
 		
 	}
 
-	public void updateUser(String accountName, String description)
+	public void updateUser(Account acc)
 			throws RemoteException, InternalErrorException {
-		Account acc = getServer().getAccountInfo(accountName, getCodi());
 		ExtensibleObject soffidObject = new AccountExtensibleObject(acc, getServer());
 		String password;
-		password = getAccountPassword(accountName);
+		password = getAccountPassword(acc.getName());
 		soffidObject.put("password", password);
 	
 		// First update role
@@ -1384,26 +1386,33 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
 			{
 				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-				updateObject(soffidObject, systemObject);
+				updateObject(acc, soffidObject, systemObject);
 			}
 		}
 		// Next update role members
 		
-		updateUserRoles (accountName, null, getServer().getAccountRoles(accountName, getCodi()),
-				getServer().getAccountExplicitRoles(accountName, getCodi()));
+		try {
+			updateUserRoles (acc, null, getServer().getAccountRoles(acc.getName(), getAgentName()),
+					getServer().getAccountExplicitRoles(acc.getName(), getAgentName()));
+		} catch (InternalErrorException e) {
+			throw e;
+		} catch (Exception e) {
+			throw new InternalErrorException("Error updating object", e);
+		}
 	}
 
 	public void removeUser(String accountName) throws RemoteException,
 			InternalErrorException {
-		Account acc = getServer().getAccountInfo(accountName, getCodi());
+		Account acc = getServer().getAccountInfo(accountName, getAgentName());
 		if (acc == null)
 		{
 			acc = new Account();
 			acc.setName(accountName);
 			acc.setDescription(null);
 			acc.setDisabled(true);
-			acc.setDispatcher(getCodi());
+			acc.setSystem(getAgentName());
 			acc.setStatus(AccountStatus.REMOVED);
+			acc.setAttributes(new HashMap<>());
 		}
 		
 		if (acc.getStatus() == AccountStatus.REMOVED)
@@ -1420,7 +1429,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			}
 		} else {
 			try {
-				Usuari user = getServer().getUserInfo(accountName, getCodi());
+				User user = getServer().getUserInfo(accountName, getAgentName());
 				ExtensibleObject soffidObject = new UserExtensibleObject(acc, user, getServer());
 				
 				for ( ExtensibleObjectMapping objectMapping: objectMappings)
@@ -1428,7 +1437,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_USER))
 					{
 						ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-						updateObject(soffidObject, systemObject);
+						updateObject(acc, soffidObject, systemObject);
 					}
 				}
 			} catch (UnknownUserException e) {
@@ -1439,19 +1448,19 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 					if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_ACCOUNT))
 					{
 						ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
-						updateObject(soffidObject, systemObject);
+						updateObject(acc, soffidObject, systemObject);
 					}
 				}
 			}
 		}
 	}
 
-	public void updateUserPassword(String accountName, Usuari userData,
+	public void updateUserPassword(String accountName, User userData,
 			Password password, boolean mustchange) throws RemoteException,
 			InternalErrorException 
 	{
 
-		Account acc = getServer().getAccountInfo(accountName, getCodi());
+		Account acc = getServer().getAccountInfo(accountName, getAgentName());
 		if (acc == null)
 			return;
 		ExtensibleObject soffidObject = userData == null ?
@@ -1501,7 +1510,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			throws RemoteException, InternalErrorException {
 		Account acc = new Account();
 		acc.setName(accountName);
-		acc.setDispatcher(getCodi());
+		acc.setSystem(getAgentName());
 		ExtensibleObject soffidObject = new UserExtensibleObject(acc, null, getServer());
 	
 		soffidObject.put("password", getHashPassword(password));
@@ -1675,7 +1684,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 										{
 											changes.add(ch);
 										} else {
-											Usuari usuari = new ValueObjectMapper().parseUsuari(translated);
+											User usuari = new ValueObjectMapper().parseUser(translated);
 											if (usuari != null)
 											{
 												if (debugEnabled && usuari != null)
@@ -1712,6 +1721,10 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	public String getNextChange() throws InternalErrorException {
 		log.info("Setting next change to "+lastModification);
 		return Long.toString(lastModification.getTime());
+	}
+
+	public List<HostService> getHostServices() throws RemoteException, InternalErrorException {
+		return new LinkedList<>();
 	}
 }
 	
