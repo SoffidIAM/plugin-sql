@@ -4,7 +4,23 @@
 <?component name="input_etiqueta" macro-uri="comu/input_etiqueta.zul"?>
 <?component name="input_password" macro-uri="comu/input_password.zul"?>
 
-<grid width="99%">
+<grid width="99%" id="configurationGrid">
+	<attribute name='onCreate'><![CDATA[
+	    try {
+	    	manageAttributes();
+	    } catch (Exception e) {}
+	]]></attribute>
+	<zscript><![CDATA[
+ 		void manageAttributes() {
+			Component d = configurationGrid.getFellow("driverList");
+			if (driverList.getSelectedItem()!=null && "db2".equals(driverList.getSelectedItem().getValue())) {
+				propsRow.setVisible(true);
+			} else {
+				propsRow.setVisible(false);
+			}
+		}
+	]]></zscript>
+
 	<columns visible="false"><column width="14%"/><column/> </columns>
 	<rows>
 		<row>
@@ -23,7 +39,17 @@
 		</row>
 		<row>
 			<input_etiqueta value="Driver" />
-			<listbox bind="@param6" mold="select"  disabled="{!canModifyAgent}" width="100px">
+			<listbox bind="@param6" mold="select" id="driverList" disabled="{!canModifyAgent}" width="100px">
+				<attribute name="onSelect">
+					<![CDATA[
+						manageAttributes();
+					]]>
+					</attribute>
+					<attribute name="onCreate">
+					<![CDATA[
+						manageAttributes();
+					]]>
+				</attribute>
 				<listitem value="mysql">
 					<listcell label="MySQL"/>
 				</listitem>
@@ -59,6 +85,11 @@
 				<input_dada bind="@param2" lectura="${!canModifyAgent}"
 					width_custom="98%" />
 			</hbox>
+		</row>
+		<row id="propsRow" visible="false">
+			<input_etiqueta value="Properties (p1=v1,p2=v2,etc)" />
+			<input_dada bind="@param9" lectura="${!canModifyAgent}"
+				width_custom="98%" />
 		</row>
 		<row>
 			<input_etiqueta value="SQL Sentence to execute at startup" />

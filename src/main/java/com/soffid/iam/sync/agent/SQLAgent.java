@@ -22,6 +22,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 import org.json.JSONException;
 
@@ -156,6 +157,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			hashType = "{" + hashType + "}";
 		String startupSql = getSystem().getParam7();
 		deltaChanges = "true".equals(getSystem().getParam8());
+		String props = getSystem().getParam9();
 		
 		debugEnabled = "true".equals(getSystem().getParam5());
 
@@ -209,9 +211,25 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			pool.setStartupSql(startupSql);
 			pools.put(getAgentName(), pool);
 		}
-        pool.setUrl(url);
-        pool.setPassword(dbPassword.getPassword());
-        pool.setUser(dbUser);
+		pool.setUrl(url);
+		pool.setUser(dbUser);
+		pool.setPassword(dbPassword.getPassword());
+		if (DB2_DRIVER.equals(driver) && props!=null && !props.trim().isEmpty()) {
+
+			Properties p = new Properties();
+			p.put("user", dbUser);
+			p.put("password",dbPassword.getPassword());
+
+			// format: p1=v1,p2=v2,etc
+			String[] lp = props.split(",");
+			for (String sp : lp) {
+				String[] i = sp.split("=");
+				p.put(i[0], i[1]);
+			}
+
+			//p.put("sslConnection", "true");
+			pool.setProperties(p);
+		}
 		try {
 			Connection conn = pool.getConnection();
 			pool.returnConnection();
@@ -239,8 +257,6 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			}
 		}
 	}
-
-
 
 	/**
 	 * Funció per obtindre transformar el password a hash per guardar a la bbdd
