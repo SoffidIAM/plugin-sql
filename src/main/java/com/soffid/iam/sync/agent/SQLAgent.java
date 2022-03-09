@@ -27,6 +27,7 @@ import org.json.JSONException;
 
 import com.soffid.iam.api.AccountStatus;
 import com.soffid.iam.api.DataType;
+import com.soffid.iam.api.Group;
 import com.soffid.iam.api.HostService;
 import com.soffid.iam.api.RoleGrant;
 
@@ -1282,7 +1283,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			try {
 				// Next update role members
 				updateUserRoles (acc, null, 
-						getServer().getAccountRoles(acc.getName(), getAgentName()),
+						getAccountRoles(userData, acc),
 						getServer().getAccountExplicitRoles(acc.getName(), getAgentName()));
 			} catch (InternalErrorException e) {
 				throw e;
@@ -1392,13 +1393,36 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		// Next update role members
 		
 		try {
-			updateUserRoles (acc, null, getServer().getAccountRoles(acc.getName(), getAgentName()),
+			updateUserRoles (acc, null, getAccountRoles(null, acc),
 					getServer().getAccountExplicitRoles(acc.getName(), getAgentName()));
 		} catch (InternalErrorException e) {
 			throw e;
 		} catch (Exception e) {
 			throw new InternalErrorException("Error updating object", e);
 		}
+	}
+
+	public Collection<RoleGrant> getAccountRoles(User user, Account account) throws InternalErrorException, UnknownUserException {
+		if (user == null)
+			return getServer().getAccountRoles(account.getName(), account.getSystem());
+		List<RoleGrant> rg = new LinkedList<>();
+		for (RoleGrant grant: getServer().getUserRoles(user.getId(), null)) {
+			rg.add(grant);
+			if (grant.getSystem().equals(getSystem().getName()))
+			{
+				RoleGrant grant2 = new RoleGrant();
+				grant2.setSystem(null);
+				rg.add(grant2);
+			}
+		}
+		for (Group group: getServer().getUserGroups(user.getId())) {
+			RoleGrant grant = new RoleGrant();
+			grant.setOwnerAccountName(account.getName());
+			grant.setOwnerSystem(account.getSystem());
+			grant.setRoleName(group.getName());
+			rg.add(grant);
+		}
+		return rg;
 	}
 
 	public void removeUser(String accountName) throws RemoteException,
