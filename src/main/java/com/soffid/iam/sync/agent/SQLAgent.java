@@ -28,6 +28,8 @@ import org.json.JSONException;
 
 import com.soffid.iam.api.AccountStatus;
 import com.soffid.iam.api.DataType;
+import com.soffid.iam.api.Group;
+import com.soffid.iam.api.Host;
 import com.soffid.iam.api.HostService;
 import com.soffid.iam.api.RoleGrant;
 
@@ -53,6 +55,7 @@ import com.soffid.iam.sync.agent.Agent;
 import com.soffid.iam.sync.engine.extobj.AccountExtensibleObject;
 import com.soffid.iam.sync.engine.extobj.ExtensibleObjectFinder;
 import com.soffid.iam.sync.engine.extobj.GrantExtensibleObject;
+import com.soffid.iam.sync.engine.extobj.GroupExtensibleObject;
 import com.soffid.iam.sync.engine.extobj.ObjectTranslator;
 import com.soffid.iam.sync.engine.extobj.RoleExtensibleObject;
 import com.soffid.iam.sync.engine.extobj.UserExtensibleObject;
@@ -63,6 +66,8 @@ import com.soffid.iam.sync.intf.AuthoritativeIdentitySource2;
 import com.soffid.iam.sync.intf.ExtensibleObject;
 import com.soffid.iam.sync.intf.ExtensibleObjectMapping;
 import com.soffid.iam.sync.intf.ExtensibleObjectMgr;
+import com.soffid.iam.sync.intf.GroupMgr;
+import com.soffid.iam.sync.intf.HostMgr;
 import com.soffid.iam.sync.intf.ReconcileMgr2;
 import com.soffid.iam.sync.intf.RoleMgr;
 import com.soffid.iam.sync.intf.UserMgr;
@@ -84,7 +89,7 @@ import oracle.jdbc.driver.OracleTypes;
  * <P>
  */
 
-public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, ReconcileMgr2, RoleMgr,
+public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, ReconcileMgr2, RoleMgr, GroupMgr, HostMgr,
 	AuthoritativeIdentitySource2 {
 
 	private static final String POSTGRESQL_DRIVER = "postgresql";
@@ -1298,7 +1303,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			try {
 				// Next update role members
 				updateUserRoles (acc, null, 
-						getServer().getAccountRoles(acc.getName(), getAgentName()),
+						getAccountRoles(userData, acc),
 						getServer().getAccountExplicitRoles(acc.getName(), getAgentName()));
 			} catch (InternalErrorException e) {
 				throw e;
@@ -1371,7 +1376,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 								GrantExtensibleObject sourceObject = new GrantExtensibleObject(currentGrant, getServer());
 								ExtensibleObject object = existingObjects.get(pos);
 								debugObject("Role to revoke: ", object, "");
-								delete(null, object, objectMapping.getProperties(), objectMapping.getSystemObject());
+								delete(sourceObject, object, objectMapping.getProperties(), objectMapping.getSystemObject());
 							}
 						}
 						
@@ -1408,13 +1413,44 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		// Next update role members
 		
 		try {
-			updateUserRoles (acc, null, getServer().getAccountRoles(acc.getName(), getAgentName()),
+			updateUserRoles (acc, null, getAccountRoles(null, acc),
 					getServer().getAccountExplicitRoles(acc.getName(), getAgentName()));
 		} catch (InternalErrorException e) {
 			throw e;
 		} catch (Exception e) {
 			throw new InternalErrorException("Error updating object", e);
 		}
+	}
+
+	public Collection<RoleGrant> getAccountRoles(User user, Account account) throws InternalErrorException, UnknownUserException, IOException {
+		boolean all = false;
+		for (ExtensibleObjectMapping map: objectMappings) {
+			if (map.getSoffidObject() == SoffidObjectType.OBJECT_ALL_GRANTED_ROLES) {
+				if ("true".equals(map.getProperties().get("goib.all.systems")))
+					all = true;
+			}
+		}
+		if (user == null || !all)
+			return getServer().getAccountRoles(account.getName(), account.getSystem());
+		
+		List<RoleGrant> rg = new LinkedList<>();
+		for (RoleGrant grant: new RemoteServiceLocator().getApplicationService().findEffectiveRoleGrantByUser(user.getId())) {
+			rg.add(grant);
+			if (grant.getSystem().equals(getSystem().getName()))
+			{
+				RoleGrant grant2 = new RoleGrant(grant);
+				grant2.setSystem(null);
+				rg.add(grant2);
+			}
+		}
+		for (Group group: getServer().getUserGroups(user.getId())) {
+			RoleGrant grant = new RoleGrant();
+			grant.setOwnerAccountName(account.getName());
+			grant.setOwnerSystem(account.getSystem());
+			grant.setRoleName(group.getName());
+			rg.add(grant);
+		}
+		return rg;
 	}
 
 	public void removeUser(String accountName) throws RemoteException,
@@ -1741,6 +1777,47 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	public List<HostService> getHostServices() throws RemoteException, InternalErrorException {
 		return new LinkedList<>();
+	}
+
+	@Override
+	public void updateHost(Host host) throws RemoteException, InternalErrorException {
+		// Next update role members
+	}
+
+	@Override
+	public void removeHost(String name) throws RemoteException, InternalErrorException {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void updateGroup(Group group) throws RemoteException, InternalErrorException {
+		ExtensibleObject soffidObject = new GroupExtensibleObject(group, getSystem().getName(), getServer());
+
+		for ( ExtensibleObjectMapping objectMapping: objectMappings)
+		{
+			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_GROUP))
+			{
+				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
+				updateObject(null, soffidObject, systemObject);
+			}
+		}
+	}
+
+	@Override
+	public void removeGroup(String group) throws RemoteException, InternalErrorException {
+		Group g = new Group();
+		g.setName(group);
+		g.setObsolete(true);
+		ExtensibleObject soffidObject = new GroupExtensibleObject(g, getSystem().getName(), getServer());
+		for ( ExtensibleObjectMapping objectMapping: objectMappings)
+		{
+			if (objectMapping.getSoffidObject().equals(SoffidObjectType.OBJECT_GROUP))
+			{
+				ExtensibleObject systemObject = objectTranslator.generateObject(soffidObject, objectMapping);
+				delete(soffidObject, systemObject, objectMapping.getProperties(), objectMapping.getSystemObject());
+			}
+		}
 	}
 }
 	
