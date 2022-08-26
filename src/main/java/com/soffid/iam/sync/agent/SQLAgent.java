@@ -194,7 +194,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			driverClass = "com.ibm.db2.jcc.DB2Driver";
 		else if (JTDS_DRIVER.equals(driver))
 			driverClass = "net.sourceforge.jtds.jdbc.Driver";
-		else
+		else if (driver != null)
 			log.info ("Unknown driver {} ",driver, null);
 
 		try {
@@ -1209,7 +1209,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				ExtensibleObject translatedSample = objectTranslator.generateObject(sample, eom2);
 				if (translatedSample != null)
 				{
-					for (String tag: getTags(objectMapping.getProperties(), "selectByName", objectMapping.getSystemObject()))
+					for (String tag: getTags(objectMapping.getProperties(), "select", objectMapping.getSystemObject()))
 					{
 						for ( ExtensibleObject obj : selectSystemObjects (translatedSample, objectMapping, 
 								objectMapping.getProperties().get(tag),
