@@ -1423,32 +1423,11 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	}
 
 	public Collection<RoleGrant> getAccountRoles(User user, Account account) throws InternalErrorException, UnknownUserException, IOException {
-		boolean all = false;
-		for (ExtensibleObjectMapping map: objectMappings) {
-			if (map.getSoffidObject() == SoffidObjectType.OBJECT_ALL_GRANTED_ROLES) {
-				if ("true".equals(map.getProperties().get("goib.all.systems")))
-					all = true;
-			}
-		}
-		if (user == null || !all)
-			return getServer().getAccountRoles(account.getName(), account.getSystem());
+		Collection<RoleGrant> rg = getServer().getAccountRoles(account.getName(), account.getSystem());
 		
-		List<RoleGrant> rg = new LinkedList<>();
-		for (RoleGrant grant: new RemoteServiceLocator().getApplicationService().findEffectiveRoleGrantByUser(user.getId())) {
-			rg.add(grant);
-			if (grant.getSystem().equals(getSystem().getName()))
-			{
-				RoleGrant grant2 = new RoleGrant(grant);
-				grant2.setSystem(null);
-				rg.add(grant2);
-			}
-		}
-		for (Group group: getServer().getUserGroups(user.getId())) {
-			RoleGrant grant = new RoleGrant();
+		for (RoleGrant grant: rg) {
 			grant.setOwnerAccountName(account.getName());
 			grant.setOwnerSystem(account.getSystem());
-			grant.setRoleName(group.getName());
-			rg.add(grant);
 		}
 		return rg;
 	}
