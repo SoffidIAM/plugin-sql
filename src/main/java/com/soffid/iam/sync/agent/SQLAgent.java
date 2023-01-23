@@ -1523,7 +1523,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				}
 				else
 				{
-					if (! runTriggers(systemObject.getObjectType(), SoffidObjectTrigger.PRE_UPDATE, systemObject, systemObject, soffidObject))
+					if (! runTriggers(systemObject.getObjectType(), SoffidObjectTrigger.PRE_UPDATE, systemObject, systemObject, soffidObject) ||
+							! runTriggers(systemObject.getObjectType(), "preSetPasswod", systemObject, systemObject, soffidObject))
 					{
 						return;
 					}
@@ -1532,6 +1533,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 						executeSentence(properties.get(s), systemObject);
 					}
 					runTriggers(systemObject.getObjectType(), SoffidObjectTrigger.POST_UPDATE, systemObject, systemObject, soffidObject);
+					runTriggers(systemObject.getObjectType(), "postSetPassword", systemObject, systemObject, soffidObject);
 				}
 			}
 		}
@@ -1609,6 +1611,13 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			ExtensibleObject existing, 
 			ExtensibleObject obj,
 			ExtensibleObject src) throws InternalErrorException {
+		return runTriggers(objectType, triggerType.toString(), existing, obj, src);
+	}
+
+	private boolean runTriggers(String objectType, String triggerType, 
+			ExtensibleObject existing, 
+			ExtensibleObject obj,
+			ExtensibleObject src) throws InternalErrorException {
 		List<ObjectMappingTrigger> triggers = getTriggers (objectType, triggerType);
 		for (ObjectMappingTrigger trigger: triggers)
 		{
@@ -1633,7 +1642,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 		return true;
 	}
 
-	private List<ObjectMappingTrigger> getTriggers(String objectType, SoffidObjectTrigger type) {
+	private List<ObjectMappingTrigger> getTriggers(String objectType, String type) {
 		List<ObjectMappingTrigger> triggers = new LinkedList<ObjectMappingTrigger>();
 		for ( ExtensibleObjectMapping objectMapping: objectMappings)
 		{
@@ -1641,7 +1650,7 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			{
 				for ( ObjectMappingTrigger trigger: objectMapping.getTriggers())
 				{
-					if (trigger.getTrigger() == type)
+					if (trigger.getTrigger().toString().equals(type))
 						triggers.add(trigger);
 				}
 			}
