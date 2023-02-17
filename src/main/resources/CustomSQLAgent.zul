@@ -97,7 +97,7 @@
 				width_custom="98%" />
 		</row>
 		<row>
-			<input_etiqueta value="Password hash algorigthm" />
+			<input_etiqueta value="Password hash algorithm" />
 			<vbox width="90%">
 				<input_dada bind="@param3" lectura="${!canModifyAgent}"
 					width_custom="98%" />
