@@ -64,7 +64,7 @@
 	</dependencies>
 	<scm>
 		<connection>scm:git:ssh://git@github.com/SoffidIAM/plugin-sql.git</connection>
-	  <tag>HEAD</tag>
+	  <tag>version-1.7.7</tag>
   </scm>
 	<licenses>
 		<license>
