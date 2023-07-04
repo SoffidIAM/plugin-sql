@@ -63,7 +63,7 @@
 		</dependency>
 	</dependencies>
 	<scm>
-		<connection>scm:git:ssh://git@stash.dev.lab:7999/iam2/plugin-sql.git</connection>
+		<connection>scm:git:ssh://git@github.com/SoffidIAM/plugin-sql.git</connection>
 	  <tag>HEAD</tag>
   </scm>
 	<licenses>
