@@ -1820,8 +1820,6 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				{
 					delete(obj, target, objectMapping.getProperties(), objectMapping.getSystemObject());
 				}
-			}
-
 		}
 	}
 }
