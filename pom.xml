@@ -140,4 +140,4 @@
       <url>${soffid.deploy.site.url}</url>
     </site>
   </distributionManagement>
-/project>
+</project>
