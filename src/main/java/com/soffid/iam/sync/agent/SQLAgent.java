@@ -1807,5 +1807,22 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			}
 		}
 	}
+	
+	public void updateExtensibleObject(ExtensibleObject obj) throws RemoteException, InternalErrorException {
+		for (ExtensibleObject target: objectTranslator.generateObjects(obj).getObjects())
+			updateObject(null, obj, target);
+	}
+
+	public void removeExtensibleObject(ExtensibleObject obj) throws RemoteException, InternalErrorException {
+		for (ExtensibleObject target: objectTranslator.generateObjects(obj).getObjects()) {
+			for ( ExtensibleObjectMapping objectMapping: objectMappings)
+				if (objectMapping.getSystemObject().equals(target.getObjectType()))
+				{
+					delete(obj, target, objectMapping.getProperties(), objectMapping.getSystemObject());
+				}
+			}
+
+		}
+	}
 }
 	
