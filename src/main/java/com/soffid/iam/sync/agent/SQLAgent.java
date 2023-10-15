@@ -1661,6 +1661,9 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 	public Collection<Map<String, Object>> invoke(String verb, String command,
 			Map<String, Object> params) throws RemoteException, InternalErrorException 
 	{
+		if (verb.equals("checkpassword")) {
+			return new LinkedList<>();
+		}
 		return objectTranslator.getObjectFinder().invoke(verb, command, params);
 	}
 
@@ -1828,5 +1831,15 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 				}
 		}
 	}
+	
+	public void checkConnectivity() throws InternalErrorException {
+		try {
+			pool.getConnection();
+		} catch (Exception e) {
+			throw new InternalErrorException("Error connecting database", e);
+		}
+		pool.returnConnection();
+	}
+
 }
 	
