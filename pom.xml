@@ -10,7 +10,7 @@
 	<artifactId>sql-plugin</artifactId>
 	<packaging>jar</packaging>
 	<name>SQL plugin</name>
-	<version>1.7.10-SNAPSHOT</version>
+	<version>1.7.10</version>
 	<dependencies>
 		<dependency>
 			<groupId>net.sf.jt400</groupId>
@@ -64,7 +64,7 @@
 	</dependencies>
 	<scm>
 		<connection>scm:git:ssh://git@github.com/SoffidIAM/plugin-sql.git</connection>
-	  <tag>version-1.7.7</tag>
+	  <tag>version-1.7.10</tag>
   </scm>
 	<licenses>
 		<license>
