@@ -20,7 +20,7 @@
 		<dependency>
 			<groupId>com.soffid.iam.sync</groupId>
 			<artifactId>syncserver</artifactId>
-			<version>3.2.0</version>
+			<version>3.6.0</version>
 		</dependency>
 		<dependency>
 			<groupId>mysql</groupId>
@@ -96,9 +96,7 @@
 						<configuration>
 							<artifactSet>
 								<includes>
-									<include>com.ibm.informix:ifxjdbc</include>
-									<include>org.postgresql:postgresql</include>
-<!-- 								<include>net.sf.jt400:jt400</include> -->
+									<include>net.sourceforge.jtds:jtds</include>
 								</includes>
 							</artifactSet>
 						</configuration>
