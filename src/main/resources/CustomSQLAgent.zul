@@ -74,6 +74,9 @@
 				<listitem value="jtds">
 					<listcell label="Sybase"/>
 				</listitem>
+				<listitem value="sqlanywhere">
+					<listcell label="SQL Anywhere"/>
+				</listitem>
 				<listitem value="odbc">
 					<listcell label="ODBC"/>
 				</listitem>

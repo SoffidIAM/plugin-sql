@@ -35,6 +35,11 @@
 			<scope>provided</scope>
 		</dependency>
 		<dependency>
+			<groupId>sybase.jdbc4</groupId>
+			<artifactId>sqlanywhere</artifactId>
+			<version>1.0.0</version>
+		</dependency>
+		<dependency>
 			<groupId>com.microsoft.sqlserver</groupId>
 			<artifactId>sqljdbc4</artifactId>
 			<version>3.0</version>
@@ -64,8 +69,8 @@
 	</dependencies>
 	<scm>
 		<connection>scm:git:ssh://git@github.com/SoffidIAM/plugin-sql.git</connection>
-	  <tag>version-1.7.7</tag>
-  </scm>
+	    <tag>version-1.7.7</tag>
+   </scm>
 	<licenses>
 		<license>
 			<name>GNU GPL Version 3.0</name>
@@ -97,6 +102,7 @@
 							<artifactSet>
 								<includes>
 									<include>net.sourceforge.jtds:jtds</include>
+									<include>sybase.jdbc4:sqlanywhere</include>
 								</includes>
 							</artifactSet>
 						</configuration>
@@ -139,6 +145,10 @@
 		<repository>
 			<id>soffid-open</id>
 			<url>https://download.soffid.com/maven</url>
+		</repository>
+		<repository>
+			<id>soffid-private</id>
+			<url>${soffid.private.deploy.url}</url>
 		</repository>
 	</repositories>
   <distributionManagement>

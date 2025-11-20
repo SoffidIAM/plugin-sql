@@ -94,6 +94,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 
 	private static final String POSTGRESQL_DRIVER = "postgresql";
 
+	private static final String SQLANYWHERE_DRIVER = "sqlanywhere";
+
 	private static final String DB2400_DRIVER = "db2400";
 
 	private static final String DB2_DRIVER = "db2";
@@ -188,6 +190,8 @@ public class SQLAgent extends Agent implements ExtensibleObjectMgr, UserMgr, Rec
 			driverClass = "com.mysql.jdbc.Driver";
 		else if (POSTGRESQL_DRIVER.equals(driver))
 			driverClass = "org.postgresql.Driver";
+		else if (SQLANYWHERE_DRIVER.equals(driver))
+			driverClass = "sybase.jdbc4.sqlanywhere.IDriver";
 		else if (DB2400_DRIVER.equals(driver))
 			driverClass = "com.ibm.as400.access.AS400JDBCDriver";
 		else if (DB2_DRIVER.equals(driver))
